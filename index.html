@@ -1,0 +1,2085 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>FASTE STUDIO — Business Management System</title>
+
+    <!-- Tailwind -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f1f5f9;
+            color: #0f172a;
+        }
+
+        .page-content {
+            display: none;
+        }
+
+        .page-content.active {
+            display: block;
+        }
+
+        .sidebar-button.active {
+            background: #1e293b;
+            color: white;
+        }
+
+        .modal {
+            display: none;
+            position: fixed !important;
+            top: 0 !important;
+            right: 0 !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 2147483000 !important;
+            background: rgba(15, 23, 42, .65) !important;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        #auth-modal {
+            position: fixed !important;
+            inset: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            z-index: 2147483640 !important;
+        }
+
+        #auth-modal > div {
+            position: relative !important;
+            width: min(100%, 420px) !important;
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            margin: auto !important;
+        }
+
+        body.auth-open {
+            overflow: hidden !important;
+        }
+
+        .modal.active {
+    display: flex !important;
+}
+
+        input,
+        select,
+        textarea {
+            outline: none;
+        }
+
+        table {
+            min-width: 700px;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
+
+        .card {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, .04);
+        }
+
+        .section-title {
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .muted {
+            color: #64748b;
+            font-size: 14px;
+        }
+
+        .stat-value {
+            font-size: 25px;
+            font-weight: 800;
+            margin-top: 8px;
+        }
+
+        .btn {
+            border: 0;
+            border-radius: 8px;
+            padding: 9px 14px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .btn-primary {
+            background: #0f172a;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1e293b;
+        }
+
+        .btn-danger {
+            background: #dc2626;
+            color: white;
+        }
+
+        .btn-green {
+            background: #16a34a;
+            color: white;
+        }
+
+        .form-input {
+            width: 100%;
+            border: 1px solid #cbd5e1;
+            border-radius: 8px;
+            padding: 10px 12px;
+            background: white;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: #334155;
+        }
+
+        .empty-state {
+            padding: 45px 20px;
+            text-align: center;
+            color: #64748b;
+        }
+
+        @media (max-width: 900px) {
+            aside {
+                width: 220px !important;
+            }
+
+            main {
+                margin-left: 220px !important;
+            }
+        }
+
+        @media (max-width: 700px) {
+            aside {
+                position: relative !important;
+                width: 100% !important;
+                height: auto !important;
+            }
+
+            main {
+                margin-left: 0 !important;
+            }
+
+            .mobile-grid {
+                grid-template-columns: 1fr !important;
+            }
+        }
+    </style>
+</head>
+
+<body>
+
+<!-- =========================================================
+     SIDEBAR
+========================================================= -->
+
+<aside class="fixed left-0 top-0 h-screen w-64 bg-slate-950 text-slate-300 p-4 overflow-y-auto">
+
+    <div class="mb-8 px-2">
+        <h1 class="text-2xl font-black text-white">
+            FASTE STUDIO
+        </h1>
+        <p class="text-xs text-slate-500 mt-1">
+            Business Management
+        </p>
+    </div>
+
+    <nav class="space-y-1">
+
+        <button
+            id="nav-dashboard"
+            onclick="showPage('dashboard')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Dashboard
+        </button>
+
+        <button
+            id="nav-product-list"
+            onclick="showPage('product-list')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Products
+        </button>
+
+        <button
+            id="nav-production"
+            onclick="showPage('production')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Production
+        </button>
+
+        <button
+            id="nav-product-house"
+            onclick="showPage('product-house')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Product House
+        </button>
+
+        <button
+            id="nav-sale"
+            onclick="showPage('sale')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Sales
+        </button>
+
+        <button
+            id="nav-balance"
+            onclick="showPage('balance')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Balance
+        </button>
+
+        <button
+            id="nav-stores"
+            onclick="showPage('stores')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Stores
+        </button>
+
+        <button
+            id="nav-report"
+            onclick="showPage('report')"
+            class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Reports
+        </button>
+
+    </nav>
+
+    <div class="mt-8 border-t border-slate-800 pt-4">
+        <div id="user-display" class="text-sm text-slate-400 px-2 mb-3"></div>
+
+        <button
+            onclick="handleLogout()"
+            class="w-full px-4 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold">
+            Logout
+        </button>
+    </div>
+
+</aside>
+
+
+<!-- =========================================================
+     MAIN
+========================================================= -->
+
+<main class="ml-64 min-h-screen">
+
+    <!-- TOPBAR -->
+
+    <header class="bg-white border-b border-slate-200 px-6 py-4 sticky top-0 z-40">
+
+        <div class="flex items-center justify-between gap-4">
+
+            <div>
+                <h2 class="font-bold text-xl">
+                    FASTE STUDIO
+                </h2>
+                <p class="text-xs text-slate-500">
+                    Business Management System
+                </p>
+            </div>
+
+            <div
+                id="header-actions"
+                class="flex items-center gap-2">
+            </div>
+
+        </div>
+
+    </header>
+
+
+    <div class="p-6">
+
+
+<!-- =========================================================
+     DASHBOARD
+========================================================= -->
+
+<section id="page-dashboard" class="page-content active">
+
+    <div class="mb-6">
+        <h2 class="section-title">Dashboard</h2>
+        <p class="muted">Business overview and current financial status.</p>
+    </div>
+
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Admin Income</p>
+            <div id="dash-admin-income" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Investor Income</p>
+            <div id="dash-investor-income" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Manager Income</p>
+            <div id="dash-manager-income" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Seller Income</p>
+            <div id="dash-seller-income" class="stat-value">৳0</div>
+        </div>
+
+    </div>
+
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">FASTE STUDIO Fund</p>
+            <div id="dash-faste-studio-fund" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Current Stock</p>
+            <div id="dash-total-stock" class="stat-value">0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Sets Sold</p>
+            <div id="dash-total-sets-sold" class="stat-value">0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Sales</p>
+            <div id="dash-total-sales" class="stat-value">৳0</div>
+        </div>
+
+    </div>
+
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Gross Profit</p>
+            <div id="dash-total-gross-profit" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Stock Value</p>
+            <div id="dash-stock-val" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Current Balance</p>
+            <div id="dash-current-balance" class="stat-value">৳0</div>
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <h3 class="font-bold text-lg">Recent Sales</h3>
+                <p class="muted">Latest sales activity</p>
+            </div>
+        </div>
+
+        <div id="dash-recent-sales-list">
+            <div class="empty-state">
+                No recent sales.
+            </div>
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     PRODUCT LIST
+========================================================= -->
+
+<section id="page-product-list" class="page-content">
+
+    <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
+
+        <div>
+            <h2 class="section-title">Product List</h2>
+            <p class="muted">
+                Manage all your product types and specifications.
+            </p>
+        </div>
+
+        <button
+            onclick="openModal('add-product-modal')"
+            class="btn btn-primary">
+            + Add Product
+        </button>
+
+    </div>
+
+
+    <div class="card mb-6">
+
+        <label class="form-label">
+            Search Product
+        </label>
+
+        <input
+            id="search-product-input"
+            class="form-input"
+            type="text"
+            placeholder="Search by code or type..."
+            oninput="renderProductList()">
+
+    </div>
+
+
+    <div
+        id="product-type-breakdown-cards"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    </div>
+
+
+    <div class="card">
+
+        <div class="table-wrapper">
+
+            <table
+                id="product-list-table"
+                class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Code</th>
+                        <th class="p-3">Type</th>
+                        <th class="p-3">Full Size</th>
+                        <th class="p-3">Pcs / Set</th>
+                        <th class="p-3">Piece Size</th>
+                        <th class="p-3">Created</th>
+                    </tr>
+                </thead>
+
+                <tbody id="product-list-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     PRODUCTION
+========================================================= -->
+
+<section id="page-production" class="page-content">
+
+    <div class="mb-6">
+        <h2 class="section-title">Production</h2>
+        <p class="muted">
+            Record production and production costs.
+        </p>
+    </div>
+
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Total Pieces</p>
+            <div id="prod-summary-total-pcs" class="stat-value">0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Sets</p>
+            <div id="prod-summary-total-sets" class="stat-value">0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Summary Period</p>
+
+            <select
+                id="prod-summary-filter"
+                class="form-input mt-2"
+                onchange="renderProdSummary()">
+                <option value="all">All Time</option>
+                <option value="today">Today</option>
+                <option value="month">This Month</option>
+                <option value="year">This Year</option>
+            </select>
+
+        </div>
+
+    </div>
+
+
+    <div
+        id="all-time-cost-breakdown"
+        class="card mb-6">
+    </div>
+
+
+    <div class="card mb-6">
+
+        <h3 class="font-bold text-lg mb-4">
+            Add Production
+        </h3>
+
+        <form id="production-form">
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+
+                <div>
+                    <label class="form-label">
+                        Production Date
+                    </label>
+
+                    <input
+                        id="prod-date"
+                        type="date"
+                        class="form-input"
+                        required>
+                </div>
+
+                <div>
+                    <label class="form-label">
+                        Production Code
+                    </label>
+
+                    <input
+                        id="prod-print-code"
+                        type="text"
+                        class="form-input"
+                        placeholder="Production code"
+                        required>
+                </div>
+
+                <div>
+                    <label class="form-label">
+                        Total Sets
+                    </label>
+
+                    <div
+                        id="prod-total-sets-lbl"
+                        class="form-input bg-slate-50">
+                        0
+                    </div>
+                </div>
+
+            </div>
+
+
+            <div class="mb-6">
+
+                <div class="flex justify-between items-center mb-3">
+
+                    <h4 class="font-bold">
+                        Products
+                    </h4>
+
+                    <button
+                        type="button"
+                        onclick="addProdItemRow()"
+                        class="btn btn-primary">
+                        + Add Item
+                    </button>
+
+                </div>
+
+                <div
+                    id="prod-items-container"
+                    class="space-y-3">
+                </div>
+
+            </div>
+
+
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+
+                <div>
+                    <label class="form-label">Sticker</label>
+                    <input id="cost-sticker" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Board</label>
+                    <input id="cost-board" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Poly</label>
+                    <input id="cost-poly" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Tape</label>
+                    <input id="cost-tape" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Transport</label>
+                    <input id="cost-transport" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Fixed</label>
+                    <input id="cost-fixed" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Ads</label>
+                    <input id="cost-ads" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Cutting</label>
+                    <input id="cost-cutting" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Packing</label>
+                    <input id="cost-packing" type="number" min="0" step="0.01" value="0" class="form-input">
+                </div>
+
+            </div>
+
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Total Pieces</p>
+                    <div id="prod-total-pcs" class="stat-value">0</div>
+                </div>
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Total Cost</p>
+                    <div id="prod-total-cost" class="stat-value">৳0</div>
+                </div>
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Cost / Set</p>
+                    <div id="prod-cost-per-set" class="stat-value">৳0</div>
+                </div>
+
+            </div>
+
+
+            <button
+                type="submit"
+                class="btn btn-primary">
+                Save Production
+            </button>
+
+        </form>
+
+    </div>
+
+
+    <div class="card">
+
+        <div class="flex flex-wrap justify-between items-center gap-3 mb-4">
+
+            <h3 class="font-bold text-lg">
+                Production History
+            </h3>
+
+            <input
+                id="search-prod-input"
+                type="text"
+                class="form-input max-w-xs"
+                placeholder="Search production..."
+                oninput="filterProductionHistory()">
+
+        </div>
+
+
+        <div class="table-wrapper">
+
+            <table
+                id="production-history-table"
+                class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">#</th>
+                        <th class="p-3">Date</th>
+                        <th class="p-3">Code</th>
+                        <th class="p-3">Sets Made</th>
+                        <th class="p-3">Total Sets</th>
+                        <th class="p-3">Pieces</th>
+                        <th class="p-3">Sticker</th>
+                        <th class="p-3">Board</th>
+                        <th class="p-3">Poly</th>
+                        <th class="p-3">Tape</th>
+                        <th class="p-3">Transport</th>
+                        <th class="p-3">Fixed</th>
+                        <th class="p-3">Ads</th>
+                        <th class="p-3">Cutting</th>
+                        <th class="p-3">Packing</th>
+                        <th class="p-3">Total Cost</th>
+                        <th class="p-3">Cost / Set</th>
+                    </tr>
+                </thead>
+
+                <tbody id="production-history-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     PRODUCT HOUSE
+========================================================= -->
+
+<section id="page-product-house" class="page-content">
+
+    <div class="mb-6">
+        <h2 class="section-title">Product House</h2>
+        <p class="muted">
+            Current stock available in the product house.
+        </p>
+    </div>
+
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Total Pieces</p>
+            <div id="house-total-pcs" class="stat-value">0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Sets</p>
+            <div id="house-total-sets" class="stat-value">0</div>
+        </div>
+
+    </div>
+
+
+    <div
+        id="house-type-breakdown"
+        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    </div>
+
+
+    <div class="card">
+
+        <div class="flex flex-wrap justify-between gap-3 mb-4">
+
+            <h3 class="font-bold text-lg">
+                Current Stock
+            </h3>
+
+            <input
+                id="search-house-input"
+                class="form-input max-w-xs"
+                type="text"
+                placeholder="Search stock..."
+                oninput="filterProductHouse()">
+
+        </div>
+
+
+        <div class="table-wrapper">
+
+            <table
+                id="house-table"
+                class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Code</th>
+                        <th class="p-3">Type</th>
+                        <th class="p-3">Sets</th>
+                        <th class="p-3">Pieces</th>
+                        <th class="p-3">Cost</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+
+                <tbody id="product-house-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     SALES
+========================================================= -->
+
+<section id="page-sale" class="page-content">
+
+    <div class="mb-6">
+        <h2 class="section-title">Sales</h2>
+        <p class="muted">
+            Record product sales and calculate profit distribution.
+        </p>
+    </div>
+
+
+    <div class="card mb-6">
+
+        <form id="sale-form">
+
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-5">
+
+                <div>
+                    <label class="form-label">
+                        Sale Date
+                    </label>
+
+                    <input
+                        id="sale-date"
+                        type="date"
+                        class="form-input"
+                        required>
+                </div>
+
+                <div>
+                    <label class="form-label">
+                        Seller Name
+                    </label>
+
+                    <input
+                        id="sale-seller-name"
+                        type="text"
+                        class="form-input"
+                        placeholder="Seller name">
+                </div>
+
+                <div>
+                    <label class="form-label">
+                        Store
+                    </label>
+
+                    <select
+                        id="sale-store-id"
+                        class="form-input">
+                        <option value="">Select Store</option>
+                    </select>
+                </div>
+
+                <div>
+                    <div class="form-label">Profit Distribution</div>
+                    <div class="grid grid-cols-2 gap-2 mt-2">
+                        <div>
+                            <label class="muted text-xs">Seller / Set</label>
+                            <input id="sale-seller-per-set" type="number" min="0" step="0.01" value="0" class="form-input" placeholder="Seller / set" oninput="calcSaleProfit()">
+                        </div>
+                        <div>
+                            <label class="muted text-xs">Manager / Set</label>
+                            <input id="sale-manager-per-set" type="number" min="0" step="0.01" value="0" class="form-input" placeholder="Manager / set" oninput="calcSaleProfit()">
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+
+            <div class="mb-5">
+
+                <div class="flex justify-between items-center mb-3">
+
+                    <h3 class="font-bold">
+                        Sale Items
+                    </h3>
+
+                    <button
+                        type="button"
+                        onclick="addSaleItemRow()"
+                        class="btn btn-primary">
+                        + Add Item
+                    </button>
+
+                </div>
+
+                <div
+                    id="sale-items-container"
+                    class="space-y-3">
+                </div>
+
+            </div>
+
+
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-4">
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Total Sets</p>
+                    <div id="sale-lbl-total-sets" class="stat-value">0</div>
+                </div>
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Total Pieces</p>
+                    <div id="sale-lbl-total-pcs" class="stat-value">0</div>
+                </div>
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Cost</p>
+                    <div id="sale-lbl-cost" class="stat-value">৳0</div>
+                </div>
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Total Sale</p>
+                    <div id="sale-lbl-total-sale" class="stat-value">৳0</div>
+                </div>
+
+                <div class="card bg-slate-50">
+                    <p class="muted">Gross Profit</p>
+                    <div id="sale-lbl-gross-profit" class="stat-value">৳0</div>
+                    <p class="muted mt-1">Sale − Cost − Seller − Manager</p>
+                </div>
+
+            </div>
+
+
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+
+                <div class="card">
+                    <p class="muted">Seller Payout</p>
+                    <div id="sale-lbl-seller-profit" class="font-bold text-xl">৳0</div>
+                </div>
+
+                <div class="card">
+                    <p class="muted">Manager Payout</p>
+                    <div id="sale-lbl-manager-profit" class="font-bold text-xl">৳0</div>
+                </div>
+
+                <div class="card">
+                    <p class="muted">Investor Profit (10%)</p>
+                    <div id="sale-lbl-investor-profit" class="font-bold text-xl">৳0</div>
+                </div>
+
+                <div class="card">
+                    <p class="muted">Admin Profit</p>
+                    <div id="sale-lbl-admin-profit" class="font-bold text-xl">৳0</div>
+                </div>
+
+            </div>
+
+
+            <button
+                type="submit"
+                class="btn btn-primary mt-5">
+                Save Sale
+            </button>
+
+        </form>
+
+    </div>
+
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="card"><p class="muted">All Time Sets Sold</p><div id="sale-summary-total-sets" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">All Time Pieces Sold</p><div id="sale-summary-total-pcs" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">All Time Sales</p><div id="sale-summary-total-sale" class="stat-value">৳0</div></div>
+    </div>
+
+    <div class="card">
+
+        <div class="flex flex-wrap justify-between gap-3 mb-4">
+
+            <h3 class="font-bold text-lg">
+                Sale History
+            </h3>
+
+            <input
+                id="search-sale-input"
+                type="text"
+                class="form-input max-w-xs"
+                placeholder="Search sales..."
+                oninput="filterSaleHistory()">
+
+        </div>
+
+
+        <div class="table-wrapper">
+
+            <table
+                id="sale-history-table"
+                class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Date</th>
+                        <th class="p-3">Product Code</th>
+                        <th class="p-3">Seller</th>
+                        <th class="p-3">Store</th>
+                        <th class="p-3">Sets</th>
+                        <th class="p-3">Pieces</th>
+                        <th class="p-3">Cost</th>
+                        <th class="p-3">Sale</th>
+                        <th class="p-3">Seller</th>
+                        <th class="p-3">Manager</th>
+                        <th class="p-3">Gross Profit</th>
+                        <th class="p-3">Investor 10%</th>
+                        <th class="p-3">Admin Profit</th>
+                    </tr>
+                </thead>
+
+                <tbody id="sale-history-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     BALANCE / LEDGER
+========================================================= -->
+
+<section id="page-balance" class="page-content">
+
+    <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
+
+        <div>
+            <h2 class="section-title">Balance & Ledger</h2>
+            <p class="muted">
+                Manage income, expenses and withdrawals.
+            </p>
+        </div>
+
+        <div class="flex gap-2 flex-wrap">
+
+            <button
+                onclick="openModal('add-transaction-modal')"
+                class="btn btn-primary">
+                + Transaction
+            </button>
+
+            <button
+                onclick="openModal('add-withdrawal-modal')"
+                class="btn btn-green">
+                + Withdrawal
+            </button>
+
+        </div>
+
+    </div>
+
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Admin</p>
+            <div id="ledger-admin-tot" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Investor</p>
+            <div id="ledger-investor-tot" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Manager</p>
+            <div id="ledger-manager-tot" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Seller</p>
+            <div id="ledger-seller-tot" class="stat-value">৳0</div>
+        </div>
+
+    </div>
+
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Total Income</p>
+            <div id="ledger-total-income" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Expense</p>
+            <div id="ledger-total-expense" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Net Impact</p>
+            <div id="ledger-net-impact" class="stat-value">৳0</div>
+        </div>
+
+    </div>
+
+
+    <div class="card mb-6">
+
+        <h3 class="font-bold text-lg mb-4">
+            Withdrawals
+        </h3>
+
+        <div class="table-wrapper">
+
+            <table class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Date</th>
+                        <th class="p-3">Role</th>
+                        <th class="p-3">Recipient</th>
+                        <th class="p-3">Amount</th>
+                        <th class="p-3">Note</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+
+                <tbody id="withdrawal-history-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <div class="flex flex-wrap gap-3 mb-4">
+
+            <input
+                id="search-ledger-input"
+                type="text"
+                class="form-input max-w-xs"
+                placeholder="Search ledger..."
+                oninput="filterLedgerHistory()">
+
+            <select
+                id="filter-ledger-type"
+                class="form-input max-w-xs"
+                onchange="filterLedgerHistory()">
+
+                <option value="">All Types</option>
+                <option value="income">Income</option>
+                <option value="expense">Expense</option>
+
+            </select>
+
+            <select
+                id="ledger-seller-filter"
+                class="form-input max-w-xs"
+                onchange="renderLedger()">
+
+                <option value="">All Sellers</option>
+
+            </select>
+
+        </div>
+
+
+        <div class="table-wrapper">
+
+            <table
+                id="ledger-table"
+                class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Date</th>
+                        <th class="p-3">Type</th>
+                        <th class="p-3">Title</th>
+                        <th class="p-3">Amount</th>
+                        <th class="p-3">Note</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+
+                <tbody id="ledger-history-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     STORES
+========================================================= -->
+
+<section id="page-stores" class="page-content">
+
+    <div class="flex flex-wrap justify-between items-center gap-4 mb-6">
+
+        <div>
+            <h2 class="section-title">Stores</h2>
+            <p class="muted">
+                Manage stores and selling locations.
+            </p>
+        </div>
+
+        <button
+            onclick="openModal('add-store-modal')"
+            class="btn btn-primary">
+            + Add Store
+        </button>
+
+    </div>
+
+
+    <div class="card mb-6">
+
+        <div class="flex flex-wrap gap-4 items-center">
+
+            <select
+                id="store-area-filter"
+                class="form-input max-w-xs"
+                onchange="filterStoresByArea()">
+
+                <option value="">All Areas</option>
+
+            </select>
+
+            <span
+                id="store-count-label"
+                class="font-semibold text-slate-600">
+                0 stores
+            </span>
+
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <div class="table-wrapper">
+
+            <table class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">No.</th>
+                        <th class="p-3">Name</th>
+                        <th class="p-3">Owner</th>
+                        <th class="p-3">Area</th>
+                        <th class="p-3">Phone</th>
+                        <th class="p-3">WhatsApp</th>
+                        <th class="p-3">Location</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+
+                <tbody id="store-list-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+<!-- =========================================================
+     REPORT
+========================================================= -->
+
+<section id="page-report" class="page-content">
+
+    <div class="mb-6">
+
+        <h2 class="section-title">
+            Store Report
+        </h2>
+
+        <p class="muted">
+            Analyze sales and profit by store.
+        </p>
+
+    </div>
+
+
+    <div class="card mb-6 p-5">
+
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div>
+                <label class="form-label mb-1">Select Store</label>
+                <p class="muted text-xs">Choose one or more stores to view their sales report.</p>
+            </div>
+            <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">Store Report</span>
+        </div>
+
+        <select
+            id="report-store-select"
+            class="form-input w-full min-h-[48px]"
+            onchange="generateStoreReport()"
+            multiple
+            size="5">
+        </select>
+
+    </div>
+
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Total Sets</p>
+            <div id="report-total-sets" class="stat-value">0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Sales</p>
+            <div id="report-total-sales" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Profit</p>
+            <div id="report-total-profit" class="stat-value">৳0</div>
+        </div>
+
+    </div>
+
+
+    <div class="card mb-6">
+
+        <div class="p-5 border-b">
+            <h3 class="font-bold text-lg">Sales History by Date</h3>
+            <p class="muted text-xs mt-1">See when each product was sold, which store received it, and how many sets were sold.</p>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Date</th>
+                        <th class="p-3">Store</th>
+                        <th class="p-3">Area</th>
+                        <th class="p-3">Product Code</th>
+                        <th class="p-3">Sets</th>
+                        <th class="p-3">Pieces</th>
+                        <th class="p-3">Sales</th>
+                    </tr>
+                </thead>
+                <tbody id="report-history-body"></tbody>
+            </table>
+        </div>
+
+    </div>
+
+    <div class="card">
+
+        <div class="table-wrapper">
+
+            <table class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Store</th>
+                        <th class="p-3">Area</th>
+                        <th class="p-3">Sold Sets</th>
+                        <th class="p-3">Total Sets</th>
+                        <th class="p-3">Sales</th>
+                        <th class="p-3">Profit</th>
+                    </tr>
+                </thead>
+
+                <tbody id="report-table-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+</section>
+
+
+    </div>
+</main>
+
+
+<!-- =========================================================
+     AUTH MODAL
+========================================================= -->
+
+<div
+     
+    id="auth-modal"
+    class="modal">
+
+    <div class="bg-white rounded-2xl w-full max-w-md p-6 shadow-2xl">
+
+        <div class="text-center mb-6">
+
+            <h2 class="text-2xl font-black">
+                FASTE STUDIO
+            </h2>
+
+            <p id="auth-subtitle" class="text-sm text-slate-500 mt-1">
+                Login to your FASTE STUDIO account
+            </p>
+
+        </div>
+
+
+        <form id="auth-form">
+
+            <div id="auth-name-group" class="mb-4">
+
+                <label class="form-label">
+                    Full Name
+                </label>
+
+                <input
+                    id="auth-name"
+                    type="text"
+                    class="form-input"
+                    placeholder="Your full name">
+
+            </div>
+
+
+            <div class="mb-4">
+
+                <label class="form-label">
+                    Email
+                </label>
+
+                <input
+                    id="auth-email"
+                    type="email"
+                    class="form-input"
+                    placeholder="you@example.com"
+                    required>
+
+            </div>
+
+
+            <div class="mb-4">
+
+                <label class="form-label">
+                    Password
+                </label>
+
+                <input
+                    id="auth-password"
+                    type="password"
+                    class="form-input"
+                    placeholder="Password"
+                    required>
+
+            </div>
+
+
+            <div
+                id="auth-message"
+                class="text-sm mb-4">
+            </div>
+
+
+            <button
+                id="auth-submit-button"
+                type="submit"
+                class="btn btn-primary w-full">
+                Login
+            </button>
+
+        </form>
+
+        <div id="auth-pending" class="text-center" style="display:none;">
+            <div class="text-4xl mb-3">⏳</div>
+            <h3 class="text-lg font-bold mb-2">Waiting for Admin Approval</h3>
+            <p class="text-sm text-slate-500">Your account was created successfully. An admin must approve your account before you can log in.</p>
+        </div>
+
+
+        <div class="text-center mt-4">
+
+            <button
+                id="auth-switch-button"
+                type="button"
+                class="text-sm text-blue-600 hover:underline">
+                Create an account
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     ADMIN USER MANAGEMENT MODAL
+========================================================= -->
+<div id="admin-users-modal" class="modal">
+    <div class="bg-white rounded-2xl w-full max-w-4xl p-6 shadow-2xl">
+        <div class="flex items-center justify-between mb-5">
+            <div>
+                <h2 class="text-xl font-bold">User Management</h2>
+                <p class="text-sm text-slate-500">Approve or disable registered users.</p>
+            </div>
+            <button type="button" onclick="closeAdminUsers()" class="text-slate-500 text-2xl">×</button>
+        </div>
+        <div class="table-wrapper">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Name</th>
+                        <th class="p-3">Email</th>
+                        <th class="p-3">Role</th>
+                        <th class="p-3">Status</th>
+                        <th class="p-3">Action</th>
+                    </tr>
+                </thead>
+                <tbody id="admin-users-body"></tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+
+<!-- =========================================================
+     ADD PRODUCT MODAL
+========================================================= -->
+
+<div id="add-product-modal" class="modal">
+
+    <div class="bg-white rounded-2xl w-full max-w-lg p-6">
+
+        <div class="flex justify-between items-center mb-5">
+
+            <h2 class="text-xl font-bold">
+                Add Product
+            </h2>
+
+            <button
+                onclick="closeModal('add-product-modal')"
+                class="text-slate-500 text-xl">
+                ×
+            </button>
+
+        </div>
+
+
+        <form id="product-form">
+
+            <div class="space-y-4">
+
+                <div>
+                    <label class="form-label">Product Code</label>
+                    <input id="p-code" class="form-input" required>
+                </div>
+
+                <div>
+                    <label class="form-label">Product Type</label>
+                    <input id="p-type" class="form-input" required>
+                </div>
+
+                <div>
+                    <label class="form-label">Full Size</label>
+                    <input id="p-full-size" class="form-input" placeholder="Example: 20x30">
+                </div>
+
+                <div>
+                    <label class="form-label">Pieces / Set</label>
+                    <input id="p-pcs-set" type="number" min="1" class="form-input">
+                </div>
+
+                <div>
+                    <label class="form-label">Piece Size</label>
+                    <input id="p-pc-size" class="form-input" readonly>
+                </div>
+
+            </div>
+
+
+            <div class="flex justify-end gap-2 mt-6">
+
+                <button
+                    type="button"
+                    onclick="closeModal('add-product-modal')"
+                    class="btn bg-slate-200">
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="btn btn-primary">
+                    Save Product
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     DESTROY STOCK MODAL
+========================================================= -->
+
+<div id="destroy-modal" class="modal">
+
+    <div class="bg-white rounded-2xl w-full max-w-md p-6">
+
+        <div class="flex justify-between items-center mb-5">
+
+            <h2 class="text-xl font-bold">
+                Remove Stock
+            </h2>
+
+            <button
+                onclick="closeModal('destroy-modal')"
+                class="text-slate-500 text-xl">
+                ×
+            </button>
+
+        </div>
+
+
+        <form id="destroy-form">
+
+            <div class="space-y-4">
+
+                <div>
+                    <label class="form-label">
+                        Product Code
+                    </label>
+
+                    <input
+                        id="destroy-print-code"
+                        class="form-input"
+                        readonly>
+                </div>
+
+                <div>
+                    <label class="form-label">
+                        Sets
+                    </label>
+
+                    <input
+                        id="destroy-sets"
+                        type="number"
+                        min="1"
+                        class="form-input"
+                        required>
+                </div>
+
+                <div>
+                    <label class="form-label">
+                        Reason
+                    </label>
+
+                    <textarea
+                        id="destroy-reason"
+                        class="form-input"
+                        rows="3"
+                        placeholder="Reason for removing stock"></textarea>
+                </div>
+
+            </div>
+
+
+            <div class="flex justify-end gap-2 mt-6">
+
+                <button
+                    type="button"
+                    onclick="closeModal('destroy-modal')"
+                    class="btn bg-slate-200">
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="btn btn-danger">
+                    Remove Stock
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     ADD TRANSACTION MODAL
+========================================================= -->
+
+<div id="add-transaction-modal" class="modal">
+
+    <div class="bg-white rounded-2xl w-full max-w-lg p-6">
+
+        <div class="flex justify-between items-center mb-5">
+
+            <h2 class="text-xl font-bold">
+                Add Transaction
+            </h2>
+
+            <button
+                onclick="closeModal('add-transaction-modal')"
+                class="text-xl text-slate-500">
+                ×
+            </button>
+
+        </div>
+
+
+        <form id="ledger-form">
+
+            <div class="space-y-4">
+
+                <div>
+                    <label class="form-label">Date</label>
+                    <input id="trans-date" type="date" class="form-input" required>
+                </div>
+
+                <div>
+                    <label class="form-label">Type</label>
+
+                    <select id="trans-type" class="form-input" required>
+                        <option value="income">Income</option>
+                        <option value="expense">Expense</option>
+                    </select>
+
+                </div>
+
+                <div>
+                    <label class="form-label">Title</label>
+                    <input id="trans-title" class="form-input" required>
+                </div>
+
+                <div>
+                    <label class="form-label">Amount</label>
+                    <input id="trans-amount" type="number" min="0" step="0.01" class="form-input" required>
+                </div>
+
+                <div>
+                    <label class="form-label">Note</label>
+                    <textarea id="trans-note" class="form-input" rows="3"></textarea>
+                </div>
+
+            </div>
+
+
+            <div class="flex justify-end gap-2 mt-6">
+
+                <button
+                    type="button"
+                    onclick="closeModal('add-transaction-modal')"
+                    class="btn bg-slate-200">
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="btn btn-primary">
+                    Save Transaction
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     WITHDRAWAL MODAL
+========================================================= -->
+
+<div id="add-withdrawal-modal" class="modal">
+
+    <div class="bg-white rounded-2xl w-full max-w-lg p-6">
+
+        <div class="flex justify-between items-center mb-5">
+
+            <h2 class="text-xl font-bold">
+                Add Withdrawal
+            </h2>
+
+            <button
+                onclick="closeModal('add-withdrawal-modal')"
+                class="text-xl text-slate-500">
+                ×
+            </button>
+
+        </div>
+
+
+        <form id="withdrawal-form">
+
+            <div class="space-y-4">
+
+                <div>
+                    <label class="form-label">
+                        Date
+                    </label>
+
+                    <input
+                        id="with-date"
+                        type="date"
+                        class="form-input"
+                        required>
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        Role
+                    </label>
+
+                    <select
+                        id="with-role"
+                        class="form-input"
+                        onchange="handleWithdrawRoleChange()"
+                        required>
+
+                        <option value="">Select Role</option>
+                        <option value="admin">Admin</option>
+                        <option value="investor">Investor</option>
+                        <option value="manager">Manager</option>
+                        <option value="seller">Seller</option>
+
+                    </select>
+
+                </div>
+
+
+                <div
+                    id="with-recipient-container">
+
+                    <label class="form-label">
+                        Seller / Recipient
+                    </label>
+
+                    <input
+                        id="with-seller-name"
+                        class="form-input"
+                        placeholder="Recipient name">
+
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        Amount
+                    </label>
+
+                    <input
+                        id="with-amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        class="form-input"
+                        required>
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        Note
+                    </label>
+
+                    <textarea
+                        id="with-note"
+                        class="form-input"
+                        rows="3">
+                    </textarea>
+
+                </div>
+
+            </div>
+
+
+            <div class="flex justify-end gap-2 mt-6">
+
+                <button
+                    type="button"
+                    onclick="closeModal('add-withdrawal-modal')"
+                    class="btn bg-slate-200">
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="btn btn-green">
+                    Save Withdrawal
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     ADD STORE MODAL
+========================================================= -->
+
+<div id="add-store-modal" class="modal">
+
+    <div class="bg-white rounded-2xl w-full max-w-lg p-6">
+
+        <div class="flex justify-between items-center mb-5">
+
+            <h2 class="text-xl font-bold">
+                Add Store
+            </h2>
+
+            <button
+                onclick="closeModal('add-store-modal')"
+                class="text-xl text-slate-500">
+                ×
+            </button>
+
+        </div>
+
+
+        <form id="store-form">
+
+            <div class="space-y-4">
+
+                <div>
+                    <label class="form-label">
+                        Store Name
+                    </label>
+
+                    <input
+                        id="st-name"
+                        class="form-input"
+                        required>
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        Owner
+                    </label>
+
+                    <input
+                        id="st-owner"
+                        class="form-input">
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        Area
+                    </label>
+
+                    <input
+                        id="st-area"
+                        class="form-input">
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        Phone
+                    </label>
+
+                    <input
+                        id="st-phone"
+                        class="form-input">
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        WhatsApp
+                    </label>
+
+                    <input
+                        id="st-whatsapp"
+                        class="form-input">
+                </div>
+
+
+                <div>
+                    <label class="form-label">
+                        Location
+                    </label>
+
+                    <input
+                        id="st-location"
+                        class="form-input">
+                </div>
+
+            </div>
+
+
+            <div class="flex justify-end gap-2 mt-6">
+
+                <button
+                    type="button"
+                    onclick="closeModal('add-store-modal')"
+                    class="btn bg-slate-200">
+                    Cancel
+                </button>
+
+                <button
+                    type="submit"
+                    class="btn btn-primary">
+                    Save Store
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+</div>
+
+
+<!-- =========================================================
+     SUPABASE
+========================================================= -->
+
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="app.js"></script>
+
+</body>
+</html>
