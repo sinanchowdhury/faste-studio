@@ -88,3 +88,12 @@ BEGIN
 END $$;
 
 NOTIFY pgrst, 'reload schema';
+
+
+-- Return support / Store member name fields
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS return_status text NOT NULL DEFAULT 'Sold';
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS returned_at timestamptz;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS returned_sets numeric NOT NULL DEFAULT 0;
+ALTER TABLE public.sales ADD COLUMN IF NOT EXISTS returned_pcs numeric NOT NULL DEFAULT 0;
+ALTER TABLE public.stores ADD COLUMN IF NOT EXISTS member_name text;
+NOTIFY pgrst, 'reload schema';
