@@ -817,13 +817,8 @@ function renderProductList() {
         return;
     }
 
-    const query = safeValue("search-product-input").trim().toLowerCase();
-    const filtered = productsList.filter(p =>
-        `${p.code || ""} ${p.type || ""}`.toLowerCase().includes(query)
-    );
-
-    body.innerHTML = filtered.length
-        ? filtered.map((p, index) => `
+    body.innerHTML =
+        productsList.map((p, index) => `
             <tr>
                 <td>${index + 1}</td>
                 <td>${escapeHtml(p.code)}</td>
@@ -831,10 +826,14 @@ function renderProductList() {
                 <td>${num(p.full_size)}</td>
                 <td>${num(p.pcs_set)}</td>
                 <td>${num(p.pc_size)}</td>
-                <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td>
+                <td>
+                    ${p.created_at
+                        ? new Date(p.created_at)
+                            .toLocaleDateString()
+                        : "-"}
+                </td>
             </tr>
-        `).join("")
-        : `<tr><td colspan="7">No products found</td></tr>`;
+        `).join("");
 }
 
 
@@ -1276,21 +1275,18 @@ async function saveProduction(event) {
 }
 
 
-function renderProductionHistory(rows = productionHistory) {
+function renderProductionHistory() {
     const body = $("production-history-body");
     if (!body) return;
-    if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="18" class="p-3">No production history</td></tr>`;
+    if (!productionHistory.length) {
+        body.innerHTML = `<tr><td colspan="17" class="p-3">No production history</td></tr>`;
         return;
     }
     const costKeys = ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
-    body.innerHTML = rows.map((p,index) => {
+    body.innerHTML = productionHistory.map((p,index) => {
         const c = p.costs || {};
-        const madeSets = Array.isArray(p.items) ? p.items.map(item => {
-            const code = item.product?.code || item.product?.print_code || item.code || item.print_code || "-";
-            return `${escapeHtml(code)}: ${num(item.sets)} set`;
-        }).join("<br>") : "-";
-        return `<tr><td class="p-3">${index+1}</td><td class="p-3">${escapeHtml(p.date||"-")}</td><td class="p-3">${escapeHtml(p.print_code||p.batch_code||"-")}</td><td class="p-3">${madeSets}</td><td class="p-3">${num(p.total_sets)}</td><td class="p-3">${num(p.total_pcs)}</td>${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}<td class="p-3 font-bold">৳${money(p.total_cost)}</td><td class="p-3">৳${money(p.cost_per_set)}</td><td class="p-3"><button type="button" onclick="openProductionEdit(${p.id})">Edit</button></td></tr>`;
+        const madeSets = Array.isArray(p.items) ? p.items.map(item => { const code = item.product?.code || item.product?.print_code || item.code || item.print_code || "-"; return `${escapeHtml(code)}: ${num(item.sets)} set`; }).join("<br>") : "-";
+        return `<tr><td class="p-3">${index+1}</td><td class="p-3">${escapeHtml(p.date||"-")}</td><td class="p-3">${escapeHtml(p.print_code||p.batch_code||"-")}</td><td class="p-3">${madeSets}</td><td class="p-3">${num(p.total_sets)}</td><td class="p-3">${num(p.total_pcs)}</td>${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}<td class="p-3 font-bold">৳${money(p.total_cost)}</td><td class="p-3">৳${money(p.cost_per_set)}</td></tr>`;
     }).join("");
 }
 
@@ -1313,84 +1309,19 @@ function renderProdSummary() {
 
 function filterProductionHistory() {
     const query = safeValue("search-prod-input").trim().toLowerCase();
-    const filtered = productionHistory.filter(p =>
-        `${p.print_code || p.batch_code || ""} ${p.date || ""}`.toLowerCase().includes(query)
-    );
-    renderProductionHistory(filtered);
-}
-
-async function openProductionEdit(id) {
-    const p = productionHistory.find(x => String(x.id) === String(id));
-    if (!p) return;
-    const dateInput = $("edit-prod-date");
-    const codeInput = $("edit-prod-code");
-    const itemsBox = $("edit-prod-items");
-    if (!dateInput || !codeInput || !itemsBox) return;
-    $("edit-prod-id").value = p.id;
-    dateInput.value = p.date || todayDate();
-    codeInput.value = p.print_code || p.batch_code || p.code || "";
-    const items = Array.isArray(p.items) ? p.items : [];
-    itemsBox.innerHTML = items.map((item, i) => {
-        const productId = item.productId || item.product_id || item.product?.id || "";
-        const product = productsList.find(x => String(x.id) === String(productId));
-        const code = product?.code || item.product?.code || item.code || item.print_code || "-";
-        return `<div class="grid grid-cols-2 gap-3 items-center"><div class="font-semibold">${escapeHtml(code)}</div><input class="form-input edit-prod-sets" data-product-id="${escapeHtml(productId)}" type="number" min="0" value="${num(item.sets)}" required></div>`;
+    const body = $("production-history-body");
+    if (!body) return;
+    const filtered = productionHistory.filter(p => String(p.print_code || p.batch_code || "").toLowerCase().includes(query));
+    if (!filtered.length) {
+        body.innerHTML = `<tr><td colspan="17" class="p-3">No matching production</td></tr>`;
+        return;
+    }
+    const costKeys = ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
+    body.innerHTML = filtered.map((p,index) => {
+        const c=p.costs||{};
+        const madeSets = Array.isArray(p.items) ? p.items.map(item => { const code = item.product?.code || item.product?.print_code || item.code || item.print_code || "-"; return `${escapeHtml(code)}: ${num(item.sets)} set`; }).join("<br>") : "-";
+        return `<tr><td class="p-3">${index+1}</td><td class="p-3">${escapeHtml(p.date||"-")}</td><td class="p-3">${escapeHtml(p.print_code||p.batch_code||"-")}</td><td class="p-3">${madeSets}</td><td class="p-3">${num(p.total_sets)}</td><td class="p-3">${num(p.total_pcs)}</td>${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}<td class="p-3 font-bold">৳${money(p.total_cost)}</td><td class="p-3">৳${money(p.cost_per_set)}</td></tr>`;
     }).join("");
-    const c = p.costs || {};
-    ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"].forEach(k => { const el=$("edit-prod-cost-"+k); if(el) el.value=num(c[k]); });
-    openModal("edit-production-modal");
-}
-
-async function saveProductionEdit(event) {
-    if (event) event.preventDefault();
-    const id = $("edit-prod-id")?.value;
-    const old = productionHistory.find(x => String(x.id) === String(id));
-    if (!old) return;
-    const date = safeValue("edit-prod-date", todayDate());
-    const printCode = safeValue("edit-prod-code").trim();
-    const inputs = Array.from(document.querySelectorAll(".edit-prod-sets"));
-    const oldItems = Array.isArray(old.items) ? old.items : [];
-    const items = inputs.map(input => {
-        const productId = input.dataset.productId;
-        const oldItem = oldItems.find(x => String(x.productId || x.product_id || x.product?.id) === String(productId));
-        const product = productsList.find(x => String(x.id) === String(productId));
-        return { productId, sets: num(input.value), product: product || oldItem?.product || {} };
-    }).filter(x => x.sets > 0);
-    if (!printCode || !items.length) { alert("Enter valid production code and sets."); return; }
-    const costs = {};
-    ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"].forEach(k => costs[k]=num(safeValue("edit-prod-cost-"+k)));
-    const totalSets = items.reduce((sum,x)=>sum+num(x.sets),0);
-    const totalPcs = items.reduce((sum,x)=>sum+num(x.sets)*num(x.product?.pcs_set),0);
-    const totalCost = Object.values(costs).reduce((sum,x)=>sum+num(x),0);
-    const costPerSet = totalSets ? totalCost/totalSets : 0;
-    try {
-        const { error: prodError } = await supabaseClient.from("productions").update({
-            batch_code: printCode, print_code: printCode, code: printCode, items, costs, total_sets: totalSets, total_pcs: totalPcs, total_cost: totalCost, avg_cost_per_set: costPerSet, cost_per_set: costPerSet, date
-        }).eq("id", id);
-        if (prodError) throw prodError;
-        const { data: existingRows, error: stockFetchError } = await supabaseClient.from("stock").select("*").eq("production_id", id);
-        if (stockFetchError) throw stockFetchError;
-        for (const row of existingRows || []) {
-            const item = items.find(x => String(x.productId) === String(row.product_id));
-            if (!item) {
-                const {error} = await supabaseClient.from("stock").delete().eq("id", row.id); if(error) throw error; continue;
-            }
-            const product = item.product || {};
-            const {error} = await supabaseClient.from("stock").update({ print_code: printCode, type: product.type || row.type, sets: item.sets, pcs: item.sets*num(product.pcs_set || (num(row.pcs)/Math.max(num(row.sets),1))), cost_per_set: costPerSet, date }).eq("id", row.id);
-            if(error) throw error;
-        }
-        for (const item of items) {
-            const found = (existingRows || []).find(r => String(r.product_id) === String(item.productId));
-            if (!found) {
-                const {error} = await supabaseClient.from("stock").insert({ print_code: printCode, product_id: item.productId, type: item.product?.type || "", sets: item.sets, pcs: item.sets*num(item.product?.pcs_set), cost_per_set: costPerSet, production_id: id, date });
-                if(error) throw error;
-            }
-        }
-        await Promise.all([fetchProductionFromSupabase(), fetchStockFromSupabase()]);
-        renderProductionHistory(); renderProdSummary(); renderProductHouse(); updateDashboard();
-        closeModalSafe("edit-production-modal");
-        alert("Production updated successfully.");
-    } catch(error) { console.error("Production edit error:",error); alert("Production update failed:\n"+error.message); }
 }
 
 
@@ -1461,7 +1392,26 @@ function renderProductHouse() {
         return;
     }
 
-    filterProductHouse();
+    body.innerHTML =
+        productHouseStock.map((s, index) => `
+            <tr>
+                <td>${escapeHtml((productsList.find(p => String(p.id) === String(s.product_id))?.code) || s.code || s.print_code || "-")}</td>
+                <td>${escapeHtml((productsList.find(p => String(p.id) === String(s.product_id))?.type) || s.type || "-")}</td>
+                <td>${num(s.sets)}</td>
+                <td>${num(s.pcs)}</td>
+                <td>${money(s.cost_per_set)}</td>
+                <td>${s.date || "-"}</td>
+                <td>
+                    <button
+                        type="button"
+                        onclick="openModal('destroy-modal'); setDestroyStock(${index})"
+                    >
+                        Destroy
+                    </button>
+                </td>
+            </tr>
+        `).join("");
+
     renderHouseTypeBreakdown();
 }
 
@@ -1501,41 +1451,46 @@ function renderHouseTypeBreakdown() {
 
 
 function filterProductHouse() {
-    const query = safeValue("search-house-input").trim().toLowerCase();
-    const body = $("product-house-body");
+
+    const query =
+        safeValue(
+            "search-house-input"
+        )
+            .trim()
+            .toLowerCase();
+
+    const body =
+        $("product-house-body");
+
     if (!body) return;
-    const filtered = productHouseStock.filter(s => `${s.print_code || ""} ${s.type || ""}`.toLowerCase().includes(query));
-    body.innerHTML = filtered.length ? filtered.map((s) => `
-        <tr>
-            <td>${escapeHtml((productsList.find(p => String(p.id) === String(s.product_id))?.code) || s.code || s.print_code || "-")}</td>
-            <td>${escapeHtml((productsList.find(p => String(p.id) === String(s.product_id))?.type) || s.type || "-")}</td>
-            <td>${num(s.sets)}</td><td>${num(s.pcs)}</td><td>${money(s.cost_per_set)}</td><td>${s.date || "-"}</td>
-            <td><button type="button" onclick="openStockEdit(${s.id})">Edit</button> <button type="button" onclick="openModal('destroy-modal'); setDestroyStockById(${s.id})">Destroy</button></td>
-        </tr>`).join("") : `<tr><td colspan="7" class="p-3">No stock found</td></tr>`;
-}
 
-async function openStockEdit(id) {
-    const stock = productHouseStock.find(s=>String(s.id)===String(id));
-    if(!stock) return;
-    $("edit-stock-id").value=stock.id;
-    $("edit-stock-code").value=(productsList.find(p=>String(p.id)===String(stock.product_id))?.code)||stock.print_code||"";
-    $("edit-stock-type").value=(productsList.find(p=>String(p.id)===String(stock.product_id))?.type)||stock.type||"";
-    $("edit-stock-sets").value=num(stock.sets);
-    $("edit-stock-sets").max="";
-    openModal("edit-stock-modal");
-}
+    const filtered =
+        productHouseStock.filter(s =>
+            `${s.print_code || ""} ${s.type || ""}`
+                .toLowerCase()
+                .includes(query)
+        );
 
-async function saveStockEdit(event) {
-    if(event) event.preventDefault();
-    const id=$("edit-stock-id")?.value; const stock=productHouseStock.find(s=>String(s.id)===String(id));
-    const sets=num(safeValue("edit-stock-sets"));
-    if(!stock || sets<=0){alert("Enter valid sets.");return;}
-    const pcsPerSet=num(stock.pcs)/Math.max(num(stock.sets),1);
-    try {
-        const {error}=await supabaseClient.from("stock").update({sets, pcs:Math.round(sets*pcsPerSet)}).eq("id",id);
-        if(error) throw error;
-        await fetchStockFromSupabase(); renderProductHouse(); updateDashboard(); closeModalSafe("edit-stock-modal"); alert("Product House stock updated successfully.");
-    } catch(error){console.error("Stock edit error:",error);alert("Product House update failed:\n"+error.message);}
+    body.innerHTML =
+        filtered.map((s, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${escapeHtml(s.print_code)}</td>
+                <td>${escapeHtml(s.type)}</td>
+                <td>${num(s.sets)}</td>
+                <td>${num(s.pcs)}</td>
+                <td>${money(s.cost_per_set)}</td>
+                <td>${s.date || "-"}</td>
+                <td>
+                    <button
+                        type="button"
+                        onclick="openModal('destroy-modal'); setDestroyStockById(${s.id})"
+                    >
+                        Destroy
+                    </button>
+                </td>
+            </tr>
+        `).join("");
 }
 
 
@@ -2298,40 +2253,7 @@ function renderSaleHistory(rows = saleHistory) {
             <td>${money(s.gross_profit)}</td>
             <td>${money(s.investor_profit)}</td>
             <td>${money(s.admin_profit)}</td>
-            <td>${String(s.status || "completed").toLowerCase()==="returned" ? "Returned" : `<button type="button" onclick="returnSale(${s.id})">Return</button>`}</td>
         </tr>`).join("");
-}
-
-async function returnSale(id) {
-    const sale = saleHistory.find(s=>String(s.id)===String(id));
-    if(!sale) return;
-    if(String(sale.status||"completed").toLowerCase()==="returned"){ alert("This sale is already returned."); return; }
-    if(!confirm(`Return this sale (${getSaleCodes(sale)})?\nAll sold sets will go back to Product House and Balance income will be reversed.`)) return;
-    const items=getSaleItems(sale);
-    try {
-        for(const item of items){
-            const sets=num(item.sets); if(sets<=0) continue;
-            const stockId=item.stock_id;
-            let existing=null;
-            if(stockId){ const r=await supabaseClient.from("stock").select("*").eq("id",stockId).maybeSingle(); if(r.error) throw r.error; existing=r.data; }
-            if(existing){
-                const pcsPerSet=num(existing.pcs)/Math.max(num(existing.sets),1);
-                const {error}=await supabaseClient.from("stock").update({sets:num(existing.sets)+sets,pcs:Math.round((num(existing.sets)+sets)*pcsPerSet)}).eq("id",existing.id); if(error) throw error;
-            } else {
-                const product=productsList.find(p=>String(p.id)===String(item.product_id));
-                const pcsPerSet=num(item.pcs_per_set)||num(product?.pcs_set);
-                const costPerSet=num(item.cost_per_set)|| (num(sale.total_cost)/Math.max(num(sale.total_sets),1));
-                const {error}=await supabaseClient.from("stock").insert({print_code:item.product_code||"",product_id:item.product_id||null,type:item.type||product?.type||"",sets,pcs:Math.round(sets*pcsPerSet),cost_per_set:costPerSet,production_id:null,date:sale.date||todayDate()}); if(error) throw error;
-            }
-        }
-        const {error: statusError}=await supabaseClient.from("sales").update({status:"returned"}).eq("id",id);
-        if(statusError) throw statusError;
-        const {error: ledgerError}=await supabaseClient.from("ledger").delete().or(`note.eq.auto_sale_revenue:${id},note.eq.auto_sale_role:seller:${id},note.eq.auto_sale_role:manager:${id},note.eq.auto_sale_role:investor:${id},note.eq.auto_sale_role:admin:${id}`);
-        if(ledgerError) throw ledgerError;
-        await Promise.all([fetchSalesFromSupabase(),fetchStockFromSupabase(),fetchLedgerFromSupabase()]);
-        renderSaleHistory(); renderSaleSummary(); renderProductHouse(); renderLedger(); updateDashboard();
-        alert("Sale returned successfully. Product House and Balance have been updated.");
-    } catch(error){ console.error("Sale return error:",error); alert("Sale return failed:\n"+error.message); }
 }
 
 function filterSaleHistory() {
@@ -3021,9 +2943,6 @@ async function saveStore(event) {
     const owner =
         safeValue("st-owner").trim();
 
-    const memberName =
-        safeValue("st-member-name").trim();
-
     const area =
         safeValue("st-area").trim();
 
@@ -3066,7 +2985,6 @@ async function saveStore(event) {
                 user_id: currentUserId(),
                 name,
                 owner,
-                member_name: memberName,
                 area,
                 phone,
                 whatsapp,
@@ -3169,7 +3087,7 @@ function renderStores() {
 
         body.innerHTML =
             `<tr>
-                <td colspan="9">
+                <td colspan="8">
                     No stores found
                 </td>
             </tr>`;
@@ -3183,7 +3101,6 @@ function renderStores() {
                 <td>${index + 1}</td>
                 <td>${escapeHtml(s.name)}</td>
                 <td>${escapeHtml(s.owner || "-")}</td>
-                <td>${escapeHtml(s.member_name || "-")}</td>
                 <td>${escapeHtml(s.area || "-")}</td>
                 <td>${escapeHtml(s.phone || "-")}</td>
                 <td>${escapeHtml(s.whatsapp || "-")}</td>
@@ -3914,12 +3831,6 @@ document.addEventListener(
                 saveStore
             );
         }
-
-        const editProductionForm = $("edit-production-form");
-        if (editProductionForm) editProductionForm.addEventListener("submit", saveProductionEdit);
-
-        const editStockForm = $("edit-stock-form");
-        if (editStockForm) editStockForm.addEventListener("submit", saveStockEdit);
 
         const destroyForm =
             $("destroy-form");
