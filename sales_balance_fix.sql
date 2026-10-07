@@ -88,3 +88,47 @@ BEGIN
 END $$;
 
 NOTIFY pgrst, 'reload schema';
+
+/* =========================================================
+   SALES RETURN SUPPORT
+   Added without changing Product / Production / Product House data
+   ========================================================= */
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS return_status text NOT NULL DEFAULT 'none';
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_sets numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_pcs numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_amount numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_cost numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_seller_profit numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_manager_profit numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_investor_profit numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_admin_profit numeric NOT NULL DEFAULT 0;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS returned_at timestamptz;
+
+ALTER TABLE public.sales
+ADD COLUMN IF NOT EXISTS return_items jsonb NOT NULL DEFAULT '[]'::jsonb;
+
+/* Store Member Name support */
+ALTER TABLE public.stores
+ADD COLUMN IF NOT EXISTS member_name text;
+
+NOTIFY pgrst, 'reload schema';
