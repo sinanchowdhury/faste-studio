@@ -799,41 +799,31 @@ async function saveProduct(event) {
 
 
 function renderProductList() {
-
-    const body =
-        $("product-list-body");
-
+    const body = $("product-list-body");
     if (!body) return;
-
     if (!productsList.length) {
-
-        body.innerHTML =
-            `<tr>
-                <td colspan="7">
-                    No products yet
-                </td>
-            </tr>`;
-
+        body.innerHTML = `<tr><td colspan="7" class="p-3">No products yet</td></tr>`;
         return;
     }
-
-    body.innerHTML =
-        productsList.map((p, index) => `
-            <tr>
-                <td>${index + 1}</td>
-                <td>${escapeHtml(p.code)}</td>
-                <td>${escapeHtml(p.type)}</td>
-                <td>${num(p.full_size)}</td>
-                <td>${num(p.pcs_set)}</td>
-                <td>${num(p.pc_size)}</td>
-                <td>
-                    ${p.created_at
-                        ? new Date(p.created_at)
-                            .toLocaleDateString()
-                        : "-"}
-                </td>
-            </tr>
-        `).join("");
+    const query = safeValue("search-product-input").trim().toLowerCase();
+    const rows = productsList.filter(p =>
+        `${p.code || ""} ${p.type || ""}`.toLowerCase().includes(query)
+    );
+    if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="7" class="p-3">No matching products</td></tr>`;
+        return;
+    }
+    body.innerHTML = rows.map((p, index) => `
+        <tr>
+            <td>${index + 1}</td>
+            <td>${escapeHtml(p.code || "-")}</td>
+            <td>${escapeHtml(p.type || "-")}</td>
+            <td>${escapeHtml(p.full_size ?? "-")}</td>
+            <td>${num(p.pcs_set)}</td>
+            <td>${escapeHtml(p.pc_size ?? "-")}</td>
+            <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td>
+        </tr>
+    `).join("");
 }
 
 
@@ -1275,19 +1265,121 @@ async function saveProduction(event) {
 }
 
 
-function renderProductionHistory() {
+function renderProductionRows(rows) {
     const body = $("production-history-body");
     if (!body) return;
-    if (!productionHistory.length) {
-        body.innerHTML = `<tr><td colspan="17" class="p-3">No production history</td></tr>`;
+    if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="18" class="p-3">No production history</td></tr>`;
         return;
     }
     const costKeys = ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
-    body.innerHTML = productionHistory.map((p,index) => {
+    body.innerHTML = rows.map((p,index) => {
         const c = p.costs || {};
-        const madeSets = Array.isArray(p.items) ? p.items.map(item => { const code = item.product?.code || item.product?.print_code || item.code || item.print_code || "-"; return `${escapeHtml(code)}: ${num(item.sets)} set`; }).join("<br>") : "-";
-        return `<tr><td class="p-3">${index+1}</td><td class="p-3">${escapeHtml(p.date||"-")}</td><td class="p-3">${escapeHtml(p.print_code||p.batch_code||"-")}</td><td class="p-3">${madeSets}</td><td class="p-3">${num(p.total_sets)}</td><td class="p-3">${num(p.total_pcs)}</td>${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}<td class="p-3 font-bold">৳${money(p.total_cost)}</td><td class="p-3">৳${money(p.cost_per_set)}</td></tr>`;
+        const madeSets = Array.isArray(p.items)
+            ? p.items.map(item => {
+                const code = item.product?.code || item.product_code || item.code || "-";
+                return `${escapeHtml(code)}: ${num(item.sets)} set`;
+            }).join("<br>")
+            : "-";
+        return `<tr>
+            <td class="p-3">${index+1}</td>
+            <td class="p-3">${escapeHtml(p.date || "-")}</td>
+            <td class="p-3">${escapeHtml(p.print_code || p.batch_code || p.code || "-")}</td>
+            <td class="p-3">${madeSets}</td>
+            <td class="p-3">${num(p.total_sets)}</td>
+            <td class="p-3">${num(p.total_pcs)}</td>
+            ${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}
+            <td class="p-3 font-bold">৳${money(p.total_cost)}</td>
+            <td class="p-3">৳${money(p.cost_per_set)}</td>
+            <td class="p-3"><button type="button" class="btn btn-primary" onclick="openProductionEdit(${p.id})">Edit</button></td>
+        </tr>`;
     }).join("");
+}
+
+function renderProductionHistory() {
+    renderProductionRows(productionHistory);
+}
+
+function openProductionEdit(id) {
+    const p = productionHistory.find(x => String(x.id) === String(id));
+    if (!p) return;
+    $("edit-production-id").value = p.id;
+    $("edit-prod-date").value = p.date || todayDate();
+    $("edit-prod-code").value = p.print_code || p.batch_code || p.code || "";
+    const items = Array.isArray(p.items) ? p.items : [];
+    $("edit-prod-items").innerHTML = items.map((item, i) => {
+        const productId = item.productId || item.product_id || item.product?.id || "";
+        const code = item.product?.code || item.product_code || item.code || "-";
+        return `<div class="grid grid-cols-2 gap-3 items-center border rounded-lg p-3">
+            <div><div class="font-semibold">${escapeHtml(code)}</div><input type="hidden" class="edit-prod-product-id" value="${escapeHtml(productId)}"></div>
+            <input type="number" min="0" class="form-input edit-prod-sets" value="${num(item.sets)}" placeholder="Sets">
+        </div>`;
+    }).join("");
+    const keys=["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
+    keys.forEach(k => { const el=$("edit-cost-"+k); if(el) el.value=num(p.costs?.[k]); });
+    openModal("edit-production-modal");
+}
+
+async function saveProductionEdit(event) {
+    if (event) event.preventDefault();
+    const id = safeValue("edit-production-id");
+    const p = productionHistory.find(x => String(x.id) === String(id));
+    if (!p) return;
+    const rows = Array.from(document.querySelectorAll("#edit-prod-items > div"));
+    const items = rows.map(row => ({
+        productId: row.querySelector(".edit-prod-product-id")?.value,
+        sets: num(row.querySelector(".edit-prod-sets")?.value)
+    })).filter(x => x.productId);
+    if (!items.length || items.some(x => x.sets < 0)) { alert("Enter valid production quantities."); return; }
+    const oldItems = Array.isArray(p.items) ? p.items : [];
+    const oldProduced = {};
+    oldItems.forEach(i => { const pid=i.productId||i.product_id||i.product?.id; if(pid) oldProduced[pid]=(oldProduced[pid]||0)+num(i.sets); });
+    const sold = {};
+    productHouseStock.filter(s => String(s.production_id) === String(p.id)).forEach(s => {
+        const pid=s.product_id; if(pid) sold[pid] = Math.max(0, (oldProduced[pid]||0) - num(s.sets) - (sold[pid]||0));
+    });
+    // If a production stock row was completely sold/deleted, oldProduced represents the sold quantity.
+    Object.keys(oldProduced).forEach(pid => {
+        if (!(pid in sold)) sold[pid] = oldProduced[pid];
+    });
+    const newMap = Object.fromEntries(items.map(i => [i.productId, i.sets]));
+    for (const pid of Object.keys(sold)) {
+        if (num(newMap[pid]) < num(sold[pid])) {
+            alert("Cannot reduce a product below the quantity already sold.");
+            return;
+        }
+    }
+    const costs = {};
+    ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"].forEach(k => costs[k]=num(safeValue("edit-cost-"+k)));
+    const totalCost=Object.values(costs).reduce((a,b)=>a+b,0);
+    const totalSets=items.reduce((a,i)=>a+num(i.sets),0);
+    const totalPcs=items.reduce((a,i)=>{const pr=productsList.find(p=>String(p.id)===String(i.productId)); return a+num(i.sets)*num(pr?.pcs_set);},0);
+    const costPerSet=totalSets ? totalCost/totalSets : 0;
+    try {
+        const productionItems=items.map(i=>{const pr=productsList.find(p=>String(p.id)===String(i.productId)); return {productId:i.productId,sets:i.sets,product:pr||null};});
+        const {error:updateError}=await supabaseClient.from("productions").update({batch_code:safeValue("edit-prod-code"),print_code:safeValue("edit-prod-code"),code:safeValue("edit-prod-code"),items:productionItems,costs,total_sets:totalSets,total_pcs:Math.round(totalPcs),total_cost:totalCost,avg_cost_per_set:costPerSet,cost_per_set:costPerSet,date:safeValue("edit-prod-date")}).eq("id",p.id);
+        if(updateError) throw updateError;
+        const oldRows=productHouseStock.filter(s=>String(s.production_id)===String(p.id));
+        const allPids=new Set([...Object.keys(oldProduced),...items.map(i=>String(i.productId))]);
+        for(const pid of allPids){
+            const pr=productsList.find(x=>String(x.id)===String(pid));
+            const desired=Math.max(0,num(newMap[pid])-num(sold[pid]));
+            const matching=oldRows.filter(s=>String(s.product_id)===String(pid));
+            const pcs=Math.round(desired*num(pr?.pcs_set));
+            if(desired<=0){ for(const r of matching) await supabaseClient.from("stock").delete().eq("id",r.id); }
+            else if(matching.length){
+                const first=matching[0];
+                const {error:e}=await supabaseClient.from("stock").update({print_code:safeValue("edit-prod-code"),type:pr?.type||first.type,sets:desired,pcs,cost_per_set:costPerSet,date:safeValue("edit-prod-date")}).eq("id",first.id); if(e) throw e;
+                for(const r of matching.slice(1)) await supabaseClient.from("stock").delete().eq("id",r.id);
+            } else {
+                const {error:e}=await supabaseClient.from("stock").insert({print_code:safeValue("edit-prod-code"),product_id:pid,type:pr?.type||"",sets:desired,pcs,cost_per_set:costPerSet,production_id:p.id,date:safeValue("edit-prod-date")}); if(e) throw e;
+            }
+        }
+        await Promise.all([fetchProductionFromSupabase(),fetchStockFromSupabase()]);
+        renderProductionHistory(); renderProdSummary(); renderProductHouse(); updateDashboard();
+        closeModalSafe("edit-production-modal");
+        alert("Production updated successfully.");
+    } catch(e){ console.error(e); alert("Production edit failed:\n"+e.message); }
 }
 
 function renderProdSummary() {
@@ -1350,149 +1442,56 @@ async function fetchStockFromSupabase() {
 
 
 function renderProductHouse() {
-
-    const body =
-        $("product-house-body");
-
-    if (!body) return;
-
-    const totalPcs =
-        productHouseStock.reduce(
-            (sum, s) =>
-                sum + num(s.pcs),
-            0
-        );
-
-    const totalSets =
-        productHouseStock.reduce(
-            (sum, s) =>
-                sum + num(s.sets),
-            0
-        );
-
-    safeText(
-        "house-total-pcs",
-        totalPcs
-    );
-
-    safeText(
-        "house-total-sets",
-        totalSets
-    );
-
-    if (!productHouseStock.length) {
-
-        body.innerHTML =
-            `<tr>
-                <td colspan="8">
-                    No stock available
-                </td>
-            </tr>`;
-
-        return;
-    }
-
-    body.innerHTML =
-        productHouseStock.map((s, index) => `
-            <tr>
-                <td>${escapeHtml((productsList.find(p => String(p.id) === String(s.product_id))?.code) || s.code || s.print_code || "-")}</td>
-                <td>${escapeHtml((productsList.find(p => String(p.id) === String(s.product_id))?.type) || s.type || "-")}</td>
-                <td>${num(s.sets)}</td>
-                <td>${num(s.pcs)}</td>
-                <td>${money(s.cost_per_set)}</td>
-                <td>${s.date || "-"}</td>
-                <td>
-                    <button
-                        type="button"
-                        onclick="openModal('destroy-modal'); setDestroyStock(${index})"
-                    >
-                        Destroy
-                    </button>
-                </td>
-            </tr>
-        `).join("");
-
+    const body=$("product-house-body"); if(!body) return;
+    const totalPcs=productHouseStock.reduce((sum,s)=>sum+num(s.pcs),0);
+    const totalSets=productHouseStock.reduce((sum,s)=>sum+num(s.sets),0);
+    safeText("house-total-pcs",totalPcs); safeText("house-total-sets",totalSets);
+    if(!productHouseStock.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No stock available</td></tr>`; return;}
+    renderProductHouseRows(productHouseStock);
     renderHouseTypeBreakdown();
 }
 
-
-function renderHouseTypeBreakdown() {
-
-    const el =
-        $("house-type-breakdown");
-
-    if (!el) return;
-
-    const map = {};
-
-    productHouseStock.forEach(stock => {
-
-        const type =
-            stock.type || "Unknown";
-
-        if (!map[type]) {
-            map[type] = 0;
-        }
-
-        map[type] += num(stock.pcs);
-    });
-
-    el.innerHTML =
-        Object.entries(map)
-            .map(
-                ([type, pcs]) =>
-                    `<div>
-                        <strong>${escapeHtml(type)}</strong>
-                        <span>${pcs} pcs</span>
-                    </div>`
-            )
-            .join("");
+function renderProductHouseRows(rows){
+    const body=$("product-house-body"); if(!body)return;
+    if(!rows.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No matching stock</td></tr>`;return;}
+    body.innerHTML=rows.map(s=>{
+        const pr=productsList.find(p=>String(p.id)===String(s.product_id));
+        const code=pr?.code||s.code||s.print_code||"-";
+        const type=pr?.type||s.type||"-";
+        return `<tr>
+            <td>${escapeHtml(code)}</td><td>${escapeHtml(type)}</td><td>${num(s.sets)}</td><td>${num(s.pcs)}</td><td>${money(s.cost_per_set)}</td><td>${s.date||"-"}</td>
+            <td><button type="button" class="btn btn-primary mr-1" onclick="openProductHouseEdit(${s.id})">Edit</button><button type="button" class="btn btn-danger" onclick="openModal('destroy-modal'); setDestroyStockById(${s.id})">Destroy</button></td>
+        </tr>`;
+    }).join("");
 }
 
-
-function filterProductHouse() {
-
-    const query =
-        safeValue(
-            "search-house-input"
-        )
-            .trim()
-            .toLowerCase();
-
-    const body =
-        $("product-house-body");
-
-    if (!body) return;
-
-    const filtered =
-        productHouseStock.filter(s =>
-            `${s.print_code || ""} ${s.type || ""}`
-                .toLowerCase()
-                .includes(query)
-        );
-
-    body.innerHTML =
-        filtered.map((s, index) => `
-            <tr>
-                <td>${index + 1}</td>
-                <td>${escapeHtml(s.print_code)}</td>
-                <td>${escapeHtml(s.type)}</td>
-                <td>${num(s.sets)}</td>
-                <td>${num(s.pcs)}</td>
-                <td>${money(s.cost_per_set)}</td>
-                <td>${s.date || "-"}</td>
-                <td>
-                    <button
-                        type="button"
-                        onclick="openModal('destroy-modal'); setDestroyStockById(${s.id})"
-                    >
-                        Destroy
-                    </button>
-                </td>
-            </tr>
-        `).join("");
+function filterProductHouse(){
+    const query=safeValue("search-house-input").trim().toLowerCase();
+    renderProductHouseRows(productHouseStock.filter(s=>`${s.print_code||""} ${s.type||""} ${productsList.find(p=>String(p.id)===String(s.product_id))?.code||""} ${productsList.find(p=>String(p.id)===String(s.product_id))?.type||""}`.toLowerCase().includes(query)));
 }
 
+function openProductHouseEdit(id){
+    const s=productHouseStock.find(x=>String(x.id)===String(id)); if(!s)return;
+    const pr=productsList.find(p=>String(p.id)===String(s.product_id));
+    $("edit-house-id").value=s.id;
+    $("edit-house-code").value=pr?.code||s.print_code||"";
+    $("edit-house-type").value=pr?.type||s.type||"";
+    $("edit-house-sets").value=num(s.sets);
+    $("edit-house-pcs").value=num(s.pcs);
+    $("edit-house-cost").value=num(s.cost_per_set);
+    openModal("edit-product-house-modal");
+}
+
+async function saveProductHouseEdit(event){
+    if(event)event.preventDefault();
+    const id=safeValue("edit-house-id"); const s=productHouseStock.find(x=>String(x.id)===String(id)); if(!s)return;
+    const sets=num(safeValue("edit-house-sets")); const pcs=num(safeValue("edit-house-pcs")); const cost=num(safeValue("edit-house-cost"));
+    if(sets<0||pcs<0){alert("Enter valid quantity.");return;}
+    try{
+        const {error}=await supabaseClient.from("stock").update({sets,pcs,cost_per_set:cost}).eq("id",s.id); if(error)throw error;
+        await fetchStockFromSupabase(); renderProductHouse(); updateDashboard(); closeModalSafe("edit-product-house-modal"); alert("Product House updated successfully.");
+    }catch(e){console.error(e);alert("Product House edit failed\n"+e.message);}
+}
 
 function setDestroyStock(index) {
 
@@ -1999,6 +1998,8 @@ async function saveSale(event) {
                     type: (productsList.find(p => String(p.id) === String(item.stock.product_id))?.type) || item.stock.type || "-",
                     sets: item.sets,
                     pcs_per_set: num(item.stock.pcs) / Math.max(num(item.stock.sets), 1),
+                    cost_per_set: num(item.stock.cost_per_set),
+                    production_id: item.stock.production_id || null,
                     store_id: storeId || null,
                     sale_price_per_set: item.salePrice,
                     seller_per_set: item.sellerPerSet,
@@ -2235,25 +2236,71 @@ function renderSaleSummary() {
 }
 
 function renderSaleHistory(rows = saleHistory) {
-    const body = $("sale-history-body");
-    if (!body) return;
-    if (!rows.length) { body.innerHTML = `<tr><td colspan="13" class="p-3">No sales yet</td></tr>`; return; }
-    body.innerHTML = rows.map(s => `
-        <tr>
-            <td>${s.date || "-"}</td>
-            <td>${escapeHtml(getSaleCodes(s))}</td>
-            <td>${escapeHtml(s.seller_name || "-")}</td>
-            <td>${escapeHtml(getSaleStoreName(s))}</td>
-            <td>${num(s.total_sets)}</td>
-            <td>${getSalePieces(s)}</td>
-            <td>${money(s.total_cost)}</td>
-            <td>${money(s.total_sale)}</td>
-            <td>${money(s.seller_profit)}</td>
-            <td>${money(s.manager_profit)}</td>
-            <td>${money(s.gross_profit)}</td>
-            <td>${money(s.investor_profit)}</td>
-            <td>${money(s.admin_profit)}</td>
-        </tr>`).join("");
+    const body=$("sale-history-body"); if(!body)return;
+    if(!rows.length){body.innerHTML=`<tr><td colspan="14" class="p-3">No sales yet</td></tr>`;return;}
+    body.innerHTML=rows.map(s=>`<tr>
+        <td>${s.date||"-"}</td><td>${escapeHtml(getSaleCodes(s))}</td><td>${escapeHtml(s.seller_name||"-")}</td><td>${escapeHtml(getSaleStoreName(s))}</td>
+        <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${money(s.seller_profit)}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
+        <td><button type="button" class="btn btn-danger" ${num(s.total_sets)<=0?'disabled':''} onclick="openSaleReturn(${s.id})">Return</button></td>
+    </tr>`).join("");
+}
+
+function openSaleReturn(id){
+    const sale=saleHistory.find(x=>String(x.id)===String(id)); if(!sale)return;
+    const items=getSaleItems(sale);
+    $("return-sale-id").value=sale.id;
+    $("return-sale-title").textContent=`Sale #${sale.id} — ${sale.date||""}`;
+    const box=$("sale-return-items");
+    box.innerHTML=items.map((item,i)=>{
+        const sets=num(item.sets);
+        const code=item.product_code||item.code||item.print_code||"-";
+        return `<div class="border rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+            <div><div class="font-semibold">${escapeHtml(code)}</div><div class="text-xs text-slate-500">Sold: ${sets} set</div></div>
+            <div class="text-sm">৳${money(item.sale_price_per_set||0)} / set</div>
+            <div class="text-sm">Return quantity</div>
+            <input type="number" min="0" max="${sets}" value="0" class="form-input return-item-sets" data-index="${i}">
+        </div>`;
+    }).join("");
+    openModal("sale-return-modal");
+}
+
+async function saveSaleReturn(event){
+    if(event)event.preventDefault();
+    const saleId=safeValue("return-sale-id"); const sale=saleHistory.find(x=>String(x.id)===String(saleId)); if(!sale)return;
+    const items=getSaleItems(sale).map(i=>({...i}));
+    const inputs=Array.from(document.querySelectorAll(".return-item-sets"));
+    let returnSets=0, returnPcs=0, returnSale=0, returnCost=0, returnSeller=0, returnManager=0;
+    const changes=[];
+    inputs.forEach(input=>{const idx=num(input.dataset.index); const q=num(input.value); if(q<=0)return; const item=items[idx]; const available=num(item.sets); if(q>available)throw new Error(`Return quantity exceeds sold quantity for ${item.product_code||item.code||"product"}.`); const pcsPerSet=num(item.pcs_per_set) || num(productsList.find(p=>String(p.id)===String(item.product_id))?.pcs_set); const costPerSet=num(item.cost_per_set) || (num(sale.total_sets)?num(sale.total_cost)/num(sale.total_sets):0); const sp=num(item.sale_price_per_set); const seller=num(item.seller_per_set); const manager=num(item.manager_per_set); returnSets+=q; returnPcs+=q*pcsPerSet; returnSale+=q*sp; returnCost+=q*costPerSet; returnSeller+=q*seller; returnManager+=q*manager; changes.push({idx,q,costPerSet,pcsPerSet});});
+    if(!returnSets){alert("Select at least one set to return.");return;}
+    const returnGross=returnSale-returnCost-returnSeller-returnManager;
+    const returnInvestor=Math.max(0,returnGross*0.10); const returnAdmin=Math.max(0,returnGross*0.90);
+    try{
+        for(const ch of changes){
+            const item=items[ch.idx]; item.sets=num(item.sets)-ch.q;
+            const productId=item.product_id; let stock=null;
+            if(item.stock_id) stock=productHouseStock.find(s=>String(s.id)===String(item.stock_id));
+            if(!stock) stock=productHouseStock.find(s=>String(s.product_id)===String(productId)&&String(s.print_code||"")===String(item.product_code||""));
+            if(stock){
+                const newSets=num(stock.sets)+ch.q; const newPcs=num(stock.pcs)+Math.round(ch.q*ch.pcsPerSet);
+                const {error}=await supabaseClient.from("stock").update({sets:newSets,pcs:newPcs}).eq("id",stock.id); if(error)throw error;
+            }else{
+                const {error}=await supabaseClient.from("stock").insert({print_code:item.product_code||"",product_id:productId,type:item.type||"",sets:ch.q,pcs:Math.round(ch.q*ch.pcsPerSet),cost_per_set:ch.costPerSet,production_id:item.production_id||null,date:sale.date||todayDate()}); if(error)throw error;
+            }
+        }
+        const newTotalSets=Math.max(0,num(sale.total_sets)-returnSets); const newTotalPcs=Math.max(0,num(sale.total_pcs)-returnPcs); const newTotalCost=Math.max(0,num(sale.total_cost)-returnCost); const newTotalSale=Math.max(0,num(sale.total_sale)-returnSale); const newSeller=Math.max(0,num(sale.seller_profit)-returnSeller); const newManager=Math.max(0,num(sale.manager_profit)-returnManager); const newGross=newTotalSale-newTotalCost-newSeller-newManager; const newInvestor=Math.max(0,newGross*0.10); const newAdmin=Math.max(0,newGross*0.90);
+        const status=newTotalSets<=0?"Returned":"Partial";
+        const {error:updateError}=await supabaseClient.from("sales").update({items:items.filter(i=>num(i.sets)>0),total_sets:newTotalSets,total_pcs:Math.round(newTotalPcs),total_cost:newTotalCost,total_sale:newTotalSale,gross_profit:newGross,seller_profit:newSeller,manager_profit:newManager,investor_profit:newInvestor,admin_profit:newAdmin,return_status:status,returned_sets:num(sale.returned_sets)+returnSets,returned_pcs:num(sale.returned_pcs)+returnPcs,returned_at:new Date().toISOString()}).eq("id",sale.id); if(updateError)throw updateError;
+        const reverseRows=[
+            {title:"Sale Return",amount:-returnSale,note:`auto_sale_return:revenue:${sale.id}`},
+            {title:"Seller Return",amount:-returnSeller,note:`auto_sale_return:seller:${sale.id}`},
+            {title:"Manager Return",amount:-returnManager,note:`auto_sale_return:manager:${sale.id}`},
+            {title:"Investor Return",amount:-returnInvestor,note:`auto_sale_return:investor:${sale.id}`},
+            {title:"Admin Return",amount:-returnAdmin,note:`auto_sale_return:admin:${sale.id}`}
+        ].filter(x=>num(x.amount)!==0).map(x=>({user_id:currentUserId(),date:todayDate(),type:"Income",title:x.title,amount:x.amount,note:x.note}));
+        if(reverseRows.length){const {error}=await supabaseClient.from("ledger").insert(reverseRows);if(error)throw error;}
+        await Promise.all([fetchSalesFromSupabase(),fetchStockFromSupabase(),fetchLedgerFromSupabase()]); renderSaleHistory();renderSaleSummary();renderProductHouse();updateDashboard();closeModalSafe("sale-return-modal");alert(`${returnSets} set returned successfully.`);
+    }catch(e){console.error("Return sale error:",e);alert("Return failed:\n"+e.message);}
 }
 
 function filterSaleHistory() {
@@ -3898,11 +3945,17 @@ window.addProdItemRow =
 window.saveProduction =
     saveProduction;
 
+window.openProductionEdit = openProductionEdit;
+window.saveProductionEdit = saveProductionEdit;
+
 window.filterProductionHistory =
     filterProductionHistory;
 
 window.filterProductHouse =
     filterProductHouse;
+
+window.openProductHouseEdit = openProductHouseEdit;
+window.saveProductHouseEdit = saveProductHouseEdit;
 
 window.addSaleItemRow =
     addSaleItemRow;
@@ -3915,6 +3968,9 @@ window.saveSale =
 
 window.filterSaleHistory =
     filterSaleHistory;
+
+window.openSaleReturn = openSaleReturn;
+window.saveSaleReturn = saveSaleReturn;
 
 window.saveTransaction =
     saveTransaction;
