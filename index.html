@@ -89,6 +89,33 @@
             overflow-x: auto;
         }
 
+        .history-box-row td {
+            background: #ffffff;
+            border-top: 1px solid #e2e8f0;
+            border-bottom: 1px solid #e2e8f0;
+            padding-top: 12px !important;
+            padding-bottom: 12px !important;
+        }
+        .history-box-row td:first-child {
+            border-left: 1px solid #e2e8f0;
+            border-radius: 10px 0 0 10px;
+        }
+        .history-box-row td:last-child {
+            border-right: 1px solid #e2e8f0;
+            border-radius: 0 10px 10px 0;
+        }
+        .history-box-row:hover td {
+            background: #f8fafc;
+        }
+        .history-summary-box {
+            min-height: 100px;
+        }
+
+        .history-box-table {
+            border-collapse: separate;
+            border-spacing: 0 8px;
+        }
+
         .card {
             background: white;
             border: 1px solid #e2e8f0;
@@ -721,7 +748,7 @@
 
             <table
                 id="production-history-table"
-                class="w-full text-sm">
+                class="w-full text-sm history-box-table">
 
                 <thead>
                     <tr class="border-b bg-slate-50 text-left">
@@ -814,7 +841,7 @@
 
             <table
                 id="house-table"
-                class="w-full text-sm">
+                class="w-full text-sm history-box-table">
 
                 <thead>
                     <tr class="border-b bg-slate-50 text-left">
@@ -1032,7 +1059,7 @@
 
             <table
                 id="sale-history-table"
-                class="w-full text-sm">
+                class="w-full text-sm history-box-table">
 
                 <thead>
                     <tr class="border-b bg-slate-50 text-left">
