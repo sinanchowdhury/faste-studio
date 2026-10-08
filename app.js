@@ -1281,7 +1281,7 @@ function renderProductionRows(rows) {
                 return `${escapeHtml(code)}: ${num(item.sets)} set`;
             }).join("<br>")
             : "-";
-        return `<tr>
+        return `<tr class="history-box-row">
             <td class="p-3">${index+1}</td>
             <td class="p-3">${escapeHtml(p.date || "-")}</td>
             <td class="p-3">${escapeHtml(p.print_code || p.batch_code || p.code || "-")}</td>
@@ -1405,7 +1405,7 @@ function filterProductionHistory() {
     if (!body) return;
     const filtered = productionHistory.filter(p => String(p.print_code || p.batch_code || "").toLowerCase().includes(query));
     if (!filtered.length) {
-        body.innerHTML = `<tr><td colspan="17" class="p-3">No matching production</td></tr>`;
+        body.innerHTML = `<tr><td colspan="18" class="p-3">No matching production</td></tr>`;
         return;
     }
     const costKeys = ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
@@ -1441,6 +1441,31 @@ async function fetchStockFromSupabase() {
 }
 
 
+function renderHouseTypeBreakdown() {
+    const box = $("house-type-breakdown");
+    if (!box) return;
+    const totals = {};
+    productHouseStock.forEach(s => {
+        const pr = productsList.find(p => String(p.id) === String(s.product_id));
+        const type = pr?.type || s.type || "Other";
+        if (!totals[type]) totals[type] = { sets: 0, pcs: 0 };
+        totals[type].sets += num(s.sets);
+        totals[type].pcs += num(s.pcs);
+    });
+    const entries = Object.entries(totals).sort((a,b) => a[0].localeCompare(b[0]));
+    if (!entries.length) {
+        box.innerHTML = "";
+        return;
+    }
+    box.innerHTML = entries.map(([type, v]) => `
+        <div class="card history-summary-box">
+            <div class="text-xs text-slate-500 uppercase">${escapeHtml(type)}</div>
+            <div class="font-bold text-lg mt-1">${num(v.sets)} Sets</div>
+            <div class="text-sm text-slate-500">${num(v.pcs)} Pieces</div>
+        </div>
+    `).join("");
+}
+
 function renderProductHouse() {
     const body=$("product-house-body"); if(!body) return;
     const totalPcs=productHouseStock.reduce((sum,s)=>sum+num(s.pcs),0);
@@ -1458,7 +1483,7 @@ function renderProductHouseRows(rows){
         const pr=productsList.find(p=>String(p.id)===String(s.product_id));
         const code=pr?.code||s.code||s.print_code||"-";
         const type=pr?.type||s.type||"-";
-        return `<tr>
+        return `<tr class="history-box-row">
             <td>${escapeHtml(code)}</td><td>${escapeHtml(type)}</td><td>${num(s.sets)}</td><td>${num(s.pcs)}</td><td>${money(s.cost_per_set)}</td><td>${s.date||"-"}</td>
             <td><button type="button" class="btn btn-primary mr-1" onclick="openProductHouseEdit(${s.id})">Edit</button><button type="button" class="btn btn-danger" onclick="openModal('destroy-modal'); setDestroyStockById(${s.id})">Destroy</button></td>
         </tr>`;
@@ -2238,7 +2263,7 @@ function renderSaleSummary() {
 function renderSaleHistory(rows = saleHistory) {
     const body=$("sale-history-body"); if(!body)return;
     if(!rows.length){body.innerHTML=`<tr><td colspan="14" class="p-3">No sales yet</td></tr>`;return;}
-    body.innerHTML=rows.map(s=>`<tr>
+    body.innerHTML=rows.map(s=>`<tr class="history-box-row">
         <td>${s.date||"-"}</td><td>${escapeHtml(getSaleCodes(s))}</td><td>${escapeHtml(s.seller_name||"-")}</td><td>${escapeHtml(getSaleStoreName(s))}</td>
         <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${money(s.seller_profit)}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
         <td><button type="button" class="btn btn-danger" ${num(s.total_sets)<=0?'disabled':''} onclick="openSaleReturn(${s.id})">Return</button></td>
@@ -3887,6 +3912,21 @@ document.addEventListener(
                 "submit",
                 saveDestroy
             );
+        }
+
+        const editProductionForm = $("edit-production-form");
+        if (editProductionForm) {
+            editProductionForm.addEventListener("submit", saveProductionEdit);
+        }
+
+        const editProductHouseForm = $("edit-product-house-form");
+        if (editProductHouseForm) {
+            editProductHouseForm.addEventListener("submit", saveProductHouseEdit);
+        }
+
+        const saleReturnForm = $("sale-return-form");
+        if (saleReturnForm) {
+            saleReturnForm.addEventListener("submit", saveSaleReturn);
         }
 
 
