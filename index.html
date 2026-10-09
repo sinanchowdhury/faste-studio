@@ -1089,8 +1089,7 @@
 
             <button
                 id="add-role-amount-button"
-                onclick="if (String(authProfile?.role || '').toLowerCase() === 'admin') { const d = $('amount-date'); if (d && !d.value) d.value = todayDate(); openModal('add-role-amount-modal'); } else { alert('Only admin can add role amounts.'); }"
-                style="display:none"
+                onclick="const d = $('amount-date'); if (d && !d.value) d.value = todayDate(); openModal('add-role-amount-modal');"
                 class="btn btn-green">
                 + Amount
             </button>
