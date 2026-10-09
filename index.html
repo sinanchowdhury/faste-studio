@@ -1088,6 +1088,14 @@
             </button>
 
             <button
+                id="add-role-amount-button"
+                onclick="if (String(authProfile?.role || '').toLowerCase() === 'admin') { const d = $('amount-date'); if (d && !d.value) d.value = todayDate(); openModal('add-role-amount-modal'); } else { alert('Only admin can add role amounts.'); }"
+                style="display:none"
+                class="btn btn-green">
+                + Amount
+            </button>
+
+            <button
                 onclick="openModal('add-withdrawal-modal')"
                 class="btn btn-green">
                 + Withdrawal
@@ -1924,6 +1932,56 @@
 
     </div>
 
+</div>
+
+
+<!-- =========================================================
+     MANUAL ROLE AMOUNT MODAL
+========================================================= -->
+<div id="add-role-amount-modal" class="modal">
+    <div class="bg-white rounded-2xl w-full max-w-lg p-6">
+        <div class="flex justify-between items-center mb-5">
+            <div>
+                <h2 class="text-xl font-bold">Add Amount</h2>
+                <p class="muted">Add income manually for Admin, Seller, Manager, or Investor.</p>
+            </div>
+            <button type="button" onclick="closeModal('add-role-amount-modal')" class="text-xl text-slate-500">×</button>
+        </div>
+        <form id="role-amount-form">
+            <div class="space-y-4">
+                <div>
+                    <label class="form-label">Date</label>
+                    <input id="amount-date" type="date" class="form-input" required>
+                </div>
+                <div>
+                    <label class="form-label">Role</label>
+                    <select id="amount-role" class="form-input" onchange="handleAmountRoleChange()" required>
+                        <option value="">Select Role</option>
+                        <option value="admin">Admin</option>
+                        <option value="seller">Seller</option>
+                        <option value="manager">Manager</option>
+                        <option value="investor">Investor</option>
+                    </select>
+                </div>
+                <div id="amount-recipient-wrap" style="display:none">
+                    <label class="form-label">Seller / Manager Name</label>
+                    <input id="amount-recipient" type="text" class="form-input" placeholder="Enter name">
+                </div>
+                <div>
+                    <label class="form-label">Amount (৳)</label>
+                    <input id="amount-value" type="number" min="0.01" step="0.01" class="form-input" required>
+                </div>
+                <div>
+                    <label class="form-label">Note (optional)</label>
+                    <textarea id="amount-note" class="form-input" rows="2" placeholder="Reason or reference"></textarea>
+                </div>
+            </div>
+            <div class="flex justify-end gap-2 mt-6">
+                <button type="button" onclick="closeModal('add-role-amount-modal')" class="btn bg-slate-200">Cancel</button>
+                <button type="submit" class="btn btn-primary">Add Amount</button>
+            </div>
+        </form>
+    </div>
 </div>
 
 
