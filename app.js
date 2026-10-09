@@ -709,129 +709,49 @@ async function fetchProductsFromSupabase() {
 
 
 async function saveProduct(event) {
-
-    if (event) {
-        event.preventDefault();
-    }
-
+    if (event) event.preventDefault();
     const form = $("product-form");
-
-    const code =
-        safeValue("p-code").trim();
-
-    const type =
-        safeValue("p-type").trim();
-
-    const fullSize =
-        num(safeValue("p-full-size"));
-
-    const pcsSet =
-        num(safeValue("p-pcs-set"));
-
-    const pcSize =
-        num(safeValue("p-pc-size"));
-
-    if (!code || !type) {
-        alert("Product code and type are required.");
-        return;
+    const bulkText = safeValue("bulk-products-input").trim();
+    let records = [];
+    if (bulkText) {
+        records = bulkText.split(/\r?\n/).map(line => line.split(",").map(v => v.trim())).filter(parts => parts.some(Boolean)).map(parts => ({code:parts[0]||"",type:parts[1]||"",full_size:parts[2]||"",pcs_set:num(parts[3]),pc_size: num(parts[3]) ? num(parts[2]) / num(parts[3]) : 0}));
+    } else {
+        const fullSizeRaw=safeValue("p-full-size").trim();
+        const fullSize=num(fullSizeRaw);
+        const pcsSet=num(safeValue("p-pcs-set"));
+        records=[{code:safeValue("p-code").trim(),type:safeValue("p-type").trim(),full_size:fullSizeRaw||fullSize,pcs_set:pcsSet,pc_size:num(safeValue("p-pc-size"))}];
     }
-
-    if (fullSize <= 0 || pcsSet <= 0) {
-        alert("Enter valid size and pieces per set.");
-        return;
+    if (!records.length || records.some(p=>!p.code||!p.type||!p.pcs_set||p.pcs_set<=0)) {
+        alert("Enter valid products. Bulk format: Code, Type, Full Size, Pieces per Set."); return;
     }
-
-    const button =
-        form?.querySelector(
-            'button[type="submit"]'
-        );
-
-    setButtonLoading(button, true);
-
+    const button=form?.querySelector('button[type="submit"]'); setButtonLoading(button,true);
     try {
-
-        const {
-            error
-        } = await supabaseClient
-            .from("products")
-            .insert({
-                user_id: currentUserId(),
-                code: code,
-                type: type,
-                full_size: fullSize,
-                pcs_set: pcsSet,
-                pc_size: pcSize
-            });
-
-        if (error) {
-            throw error;
-        }
-
-        await fetchProductsFromSupabase();
-
-        renderProductList();
-
-        if (form) {
-            form.reset();
-        }
-
-        calcPieceSize();
-
-        closeModalSafe("add-product-modal");
-
-        alert("Product saved successfully.");
-
-    } catch (error) {
-
-        console.error(
-            "Save product error:",
-            error
-        );
-
-        alert(
-            "Product save failed:\n" +
-            error.message
-        );
-
-    } finally {
-
-        setButtonLoading(
-            button,
-            false,
-            "Save Product"
-        );
-    }
+        const {error}=await supabaseClient.from("products").insert(records.map(p=>({...p,user_id:currentUserId()})));
+        if(error) throw error;
+        await fetchProductsFromSupabase(); renderProductList(); updateDashboard();
+        if(form) form.reset(); calcPieceSize(); closeModalSafe("add-product-modal");
+        alert(`${records.length} product${records.length===1?'':'s'} saved successfully.`);
+    } catch(error) { console.error("Save product error:",error); alert("Product save failed:\n"+error.message); }
+    finally { setButtonLoading(button,false,"Save Product"); }
 }
 
+async function deleteProduct(id) {
+    const product=productsList.find(p=>String(p.id)===String(id)); if(!product)return;
+    if(productHouseStock.some(s=>String(s.product_id)===String(id))) { alert("This product is used in Product House stock. Remove/destroy its stock first."); return; }
+    if(!confirm(`Delete product ${product.code || product.type}?`))return;
+    try { const {error}=await supabaseClient.from("products").delete().eq("id",id); if(error)throw error; await fetchProductsFromSupabase(); renderProductList(); updateDashboard(); alert("Product deleted."); }
+    catch(e){alert("Product delete failed:\n"+e.message);}
+}
 
 function renderProductList() {
-    const body = $("product-list-body");
-    if (!body) return;
-    if (!productsList.length) {
-        body.innerHTML = `<tr><td colspan="7" class="p-3">No products yet</td></tr>`;
-        return;
-    }
-    const query = safeValue("search-product-input").trim().toLowerCase();
-    const rows = productsList.filter(p =>
-        `${p.code || ""} ${p.type || ""}`.toLowerCase().includes(query)
-    );
-    if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="7" class="p-3">No matching products</td></tr>`;
-        return;
-    }
-    body.innerHTML = rows.map((p, index) => `
-        <tr>
-            <td>${index + 1}</td>
-            <td>${escapeHtml(p.code || "-")}</td>
-            <td>${escapeHtml(p.type || "-")}</td>
-            <td>${escapeHtml(p.full_size ?? "-")}</td>
-            <td>${num(p.pcs_set)}</td>
-            <td>${escapeHtml(p.pc_size ?? "-")}</td>
-            <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td>
-        </tr>
-    `).join("");
+    const body=$("product-list-body"), grid=$("product-card-grid");
+    const query=safeValue("search-product-input").trim().toLowerCase();
+    const rows=productsList.filter(p=>`${p.code||""} ${p.type||""} ${p.full_size||""}`.toLowerCase().includes(query));
+    if(body) body.innerHTML=rows.length?rows.map((p,i)=>`<tr><td>${i+1}</td><td>${escapeHtml(p.code||"-")}</td><td>${escapeHtml(p.type||"-")}</td><td>${escapeHtml(p.full_size??"-")}</td><td>${num(p.pcs_set)}</td><td>${escapeHtml(p.pc_size??"-")}</td><td>${p.created_at?new Date(p.created_at).toLocaleDateString():"-"}</td></tr>`).join(""):`<tr><td colspan="7" class="p-3">No products found</td></tr>`;
+    const breakdown=$("product-type-breakdown-cards");
+    if(breakdown){const types=new Map();productsList.forEach(p=>{const key=p.type||"Unknown";types.set(key,(types.get(key)||0)+1)});breakdown.innerHTML=[...types].map(([type,count])=>`<div class="card"><p class="muted">${escapeHtml(type)}</p><div class="stat-value">${count}</div><p class="muted">product codes</p></div>`).join("");}
+    if(grid) grid.innerHTML=rows.length?rows.map(p=>`<article class="card border-t-4 border-t-slate-800 hover:shadow-md transition-shadow"><div class="flex justify-between gap-3 items-start"><div><p class="muted">PRODUCT CODE</p><h3 class="text-xl font-extrabold">${escapeHtml(p.code||"-")}</h3><p class="text-slate-600 mt-1">${escapeHtml(p.type||"-")}</p></div><span class="rounded-lg bg-slate-100 px-3 py-1 text-sm font-semibold">${num(p.pcs_set)} pcs/set</span></div><div class="grid grid-cols-2 gap-3 mt-5"><div class="rounded-lg bg-slate-50 p-3"><p class="muted">Full Size</p><strong>${escapeHtml(p.full_size||"-")}</strong></div><div class="rounded-lg bg-slate-50 p-3"><p class="muted">Piece Size</p><strong>${escapeHtml(p.pc_size??"-")}</strong></div></div><div class="flex items-center justify-between mt-4"><span class="muted">${p.created_at?new Date(p.created_at).toLocaleDateString():"Added product"}</span><button type="button" class="btn btn-danger" onclick="deleteProduct(${JSON.stringify(p.id)})">Delete</button></div></article>`).join(""):`<div class="card empty-state sm:col-span-2 xl:col-span-3">No matching products found.</div>`;
 }
-
 
 /* =========================================================
    PRODUCTION
@@ -882,6 +802,14 @@ function prepareProductionForm() {
 }
 
 
+function filterProductSelect(input, selectClass) {
+    const row=input?.closest(".production-item-row, .sale-item-row"); const select=row?.querySelector("."+selectClass); if(!select)return;
+    const query=input.value.trim().toLowerCase(); const current=select.value;
+    const source=selectClass==="prod-product-select" ? productsList.map(p=>({id:p.id,label:`${p.code||""} - ${p.type||""}`})) : productHouseStock.map(s=>{const p=productsList.find(x=>String(x.id)===String(s.product_id));return {id:s.id,label:`${p?.code||s.print_code||""} - ${p?.type||s.type||""} (${num(s.sets)} sets)`};});
+    select.innerHTML='<option value="">Select product</option>'+source.filter(item=>!query||item.label.toLowerCase().includes(query)).map(item=>`<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join("");
+    if(source.some(item=>String(item.id)===String(current)) && (!query || source.find(item=>String(item.id)===String(current)).label.toLowerCase().includes(query)))select.value=current;
+}
+
 function addProdItemRow() {
 
     const container =
@@ -896,7 +824,8 @@ function addProdItemRow() {
         "production-item-row";
 
     row.innerHTML = `
-        <select class="prod-product-select">
+        <input type="search" class="form-input mb-2 prod-product-search" placeholder="Search product code/type..." oninput="filterProductSelect(this, 'prod-product-select')">
+        <select class="form-input prod-product-select">
             <option value="">Select product</option>
 
             ${productsList.map(p => `
@@ -1297,7 +1226,7 @@ function renderProductionRows(rows) {
             ${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}
             <td class="p-3 font-bold">৳${money(p.total_cost)}</td>
             <td class="p-3">৳${money(p.cost_per_set)}</td>
-            <td class="p-3"><button type="button" class="btn btn-primary" onclick="openProductionEdit(${p.id})">Edit</button></td>
+            <td class="p-3"><button type="button" class="btn btn-primary mr-1" onclick="openProductionEdit(${p.id})">Edit</button><button type="button" class="btn btn-danger" onclick="deleteProduction(${JSON.stringify(p.id)})">Delete</button></td>
         </tr>`;
     }).join("");
 }
@@ -1388,6 +1317,16 @@ async function saveProductionEdit(event) {
     } catch(e){ console.error(e); alert("Production edit failed:\n"+e.message); }
 }
 
+async function deleteProduction(id) {
+    const p=productionHistory.find(x=>String(x.id)===String(id)); if(!p)return;
+    if(!confirm(`Delete production ${p.print_code||p.batch_code||p.code||id}? Remaining stock from this production will also be removed. Existing sales history will remain.`))return;
+    try {
+        const {error}=await supabaseClient.from("stock").delete().eq("production_id",p.id); if(error)throw error;
+        const {error:prodError}=await supabaseClient.from("productions").delete().eq("id",p.id); if(prodError)throw prodError;
+        await Promise.all([fetchProductionFromSupabase(),fetchStockFromSupabase()]); renderProductionHistory();renderProdSummary();renderProductHouse();updateDashboard();alert("Production deleted.");
+    } catch(e){alert("Production delete failed:\n"+e.message);}
+}
+
 function renderProdSummary() {
     const filter=safeValue("prod-summary-filter","all"); const now=new Date();
     const rows=productionHistory.filter(p=>{
@@ -1418,7 +1357,7 @@ function filterProductionHistory() {
     body.innerHTML = filtered.map((p,index) => {
         const c=p.costs||{};
         const madeSets = Array.isArray(p.items) ? p.items.map(item => { const code = item.product?.code || item.product?.print_code || item.code || item.print_code || "-"; return `${escapeHtml(code)}: ${num(item.sets)} set`; }).join("<br>") : "-";
-        return `<tr><td class="p-3">${index+1}</td><td class="p-3">${escapeHtml(p.date||"-")}</td><td class="p-3">${escapeHtml(p.print_code||p.batch_code||"-")}</td><td class="p-3">${madeSets}</td><td class="p-3">${num(p.total_sets)}</td><td class="p-3">${num(p.total_pcs)}</td>${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}<td class="p-3 font-bold">৳${money(p.total_cost)}</td><td class="p-3">৳${money(p.cost_per_set)}</td></tr>`;
+        return `<tr><td class="p-3">${index+1}</td><td class="p-3">${escapeHtml(p.date||"-")}</td><td class="p-3">${escapeHtml(p.print_code||p.batch_code||"-")}</td><td class="p-3">${madeSets}</td><td class="p-3">${num(p.total_sets)}</td><td class="p-3">${num(p.total_pcs)}</td>${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}<td class="p-3 font-bold">৳${money(p.total_cost)}</td><td class="p-3">৳${money(p.cost_per_set)}</td><td class="p-3"><button type="button" class="btn btn-primary mr-1" onclick="openProductionEdit(${JSON.stringify(p.id)})">Edit</button><button type="button" class="btn btn-danger" onclick="deleteProduction(${JSON.stringify(p.id)})">Delete</button></td></tr>`;
     }).join("");
 }
 
@@ -1452,9 +1391,16 @@ function renderProductHouse() {
     const totalPcs=productHouseStock.reduce((sum,s)=>sum+num(s.pcs),0);
     const totalSets=productHouseStock.reduce((sum,s)=>sum+num(s.sets),0);
     safeText("house-total-pcs",totalPcs); safeText("house-total-sets",totalSets);
+    renderHouseTypeBreakdown();
     if(!productHouseStock.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No stock available</td></tr>`; return;}
     renderProductHouseRows(productHouseStock);
-    renderHouseTypeBreakdown();
+}
+
+function renderHouseTypeBreakdown(){
+    const box=$("house-type-breakdown"); if(!box)return;
+    const totals=new Map();
+    productHouseStock.forEach(s=>{const p=productsList.find(x=>String(x.id)===String(s.product_id));const type=p?.type||s.type||"Unknown";const row=totals.get(type)||{sets:0,pieces:0,codes:new Set()};row.sets+=num(s.sets);row.pieces+=num(s.pcs);row.codes.add(p?.code||s.print_code||"-");totals.set(type,row);});
+    box.innerHTML=totals.size?[...totals].sort((a,b)=>b[1].sets-a[1].sets).map(([type,v])=>`<div class="card border-t-4 border-t-slate-700"><p class="muted">${escapeHtml(type)}</p><div class="stat-value">${v.sets} <span class="text-sm font-semibold">sets</span></div><div class="text-sm text-slate-600 mt-2">${v.pieces} pieces</div><div class="muted mt-1">${v.codes.size} product code(s)</div></div>`).join(""):`<div class="card muted">No stock breakdown available yet.</div>`;
 }
 
 function renderProductHouseRows(rows){
@@ -1748,7 +1694,8 @@ function addSaleItemRow() {
     row.className = "sale-item-row";
 
     row.innerHTML = `
-        <select class="sale-stock-select" onchange="calcSaleProfit()">
+        <input type="search" class="form-input mb-2 sale-stock-search" placeholder="Search product code/type..." oninput="filterProductSelect(this, 'sale-stock-select')">
+        <select class="form-input sale-stock-select" onchange="calcSaleProfit()">
             <option value="">Select stock</option>
             ${availableStock.map(stock => `
                 <option value="${stock.id}">
@@ -2236,7 +2183,7 @@ function getSalePieces(s) {
 }
 
 function renderSaleSummary() {
-    safeText("sale-summary-total-sets", saleHistory.reduce((sum,s) => sum + num(s.total_sets), 0));
+    safeText("sale-summary-total-sets", saleHistory.reduce((sum,s) => sum + (num(s.total_sets) || getSaleItems(s).reduce((n,item)=>n+num(item.sets),0)), 0));
     safeText("sale-summary-total-pcs", saleHistory.reduce((sum,s) => sum + getSalePieces(s), 0));
     safeText("sale-summary-total-sale", money(saleHistory.reduce((sum,s) => sum + num(s.total_sale), 0)));
 }
@@ -2804,11 +2751,10 @@ function renderLedger() {
     ];
 
 
-    allRows.sort(
-        (a, b) =>
-            Number(b.id || 0) -
-            Number(a.id || 0)
-    );
+    allRows.sort((a,b) => {
+        const da=new Date(a.created_at||a.date||0).getTime()||0; const db=new Date(b.created_at||b.date||0).getTime()||0;
+        return db-da || Number(b.id||0)-Number(a.id||0);
+    });
 
 
     if (!allRows.length) {
@@ -3242,10 +3188,9 @@ function renderStores() {
         if (areas.includes(currentArea)) areaSelect.value = currentArea;
     }
 
-    safeText(
-        "store-count-label",
-        filtered.length
-    );
+    safeText("store-count-label", `${filtered.length} shops${areaFilter ? ` in ${safeValue("store-area-filter")}` : " total"}`);
+    const areaSummary=$("store-area-summary");
+    if(areaSummary){const counts=new Map();storeList.forEach(s=>{const area=String(s.area||"Unassigned").trim()||"Unassigned";counts.set(area,(counts.get(area)||0)+1)});areaSummary.innerHTML=`<div class="card bg-slate-950 text-white"><p class="text-slate-300 text-sm">Total Shops</p><div class="text-3xl font-extrabold mt-2">${storeList.length}</div></div>`+[...counts].sort((a,b)=>b[1]-a[1]).map(([area,count])=>`<div class="card"><p class="muted">${escapeHtml(area)}</p><div class="stat-value">${count}</div><p class="muted">shops in this area</p></div>`).join("");}
 
     if (!filtered.length) {
 
@@ -3338,18 +3283,15 @@ function populateStoreSelect() {
             `).join("");
 
         selected.forEach(id => {
-
-            const option =
-                reportSelect.querySelector(
-                    `option[value="${id}"]`
-                );
-
-            if (option) {
-                option.selected = true;
-            }
+            const option=reportSelect.querySelector(`option[value="${id}"]`);
+            if(option) option.selected=true;
         });
+        const cards=$("report-store-cards");
+        if(cards) cards.innerHTML=storeList.length?storeList.map(store=>{const checked=selected.includes(String(store.id));return `<label class="card cursor-pointer hover:border-slate-500 transition-colors ${checked?'border-slate-900 ring-1 ring-slate-900':''}"><div class="flex items-start gap-3"><input type="checkbox" class="mt-1" ${checked?'checked':''} onchange="toggleReportStore(${JSON.stringify(String(store.id))}, this.checked)"><div><div class="font-bold">${escapeHtml(store.name||'Unnamed shop')}</div><div class="muted mt-1">${escapeHtml(store.area||'Area not set')}</div><div class="text-xs text-slate-500 mt-2">${escapeHtml(store.owner||'')} ${store.phone?'· '+escapeHtml(store.phone):''}</div></div></div></label>`}).join(''):`<div class="empty-state">No stores added yet.</div>`;
     }
 }
+
+function toggleReportStore(id, checked){const select=$("report-store-select");if(!select)return;const option=select.querySelector(`option[value="${id}"]`);if(option)option.selected=checked;generateStoreReport();renderStores();}
 
 
 async function deleteStore(id) {
@@ -3567,7 +3509,7 @@ function updateDashboard() {
         saleHistory.reduce(
             (sum, s) =>
                 sum +
-                num(s.total_sets),
+                (num(s.total_sets) || getSaleItems(s).reduce((n,item)=>n+num(item.sets),0)),
             0
         );
 
@@ -3692,10 +3634,10 @@ function updateDashboard() {
         money(stockValue)
     );
 
-    safeText(
-        "dash-current-balance",
-        money(currentBalance)
-    );
+    safeText("dash-current-balance", money(currentBalance));
+    safeText("dash-product-count", productsList.length);
+    safeText("dash-production-count", productionHistory.length);
+    safeText("dash-store-count", storeList.length);
 
 
     const recent =
