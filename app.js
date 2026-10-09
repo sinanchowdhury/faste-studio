@@ -305,6 +305,9 @@ function addAdminUsersButton() {
 
     if (role !== "admin") return;
 
+    const amountButton = $("add-role-amount-button");
+    if (amountButton) amountButton.style.display = "inline-flex";
+
     if ($("admin-users-button")) return;
 
     const container =
@@ -324,6 +327,7 @@ function addAdminUsersButton() {
     button.onclick = openAdminUsers;
 
     container.appendChild(button);
+
 }
 
 function openAdminUsers() {
@@ -2467,6 +2471,77 @@ async function saveTransaction(event) {
 }
 
 
+async function saveRoleAmount(event) {
+    if (event) event.preventDefault();
+
+    if (String(authProfile?.role || "").toLowerCase() !== "admin") {
+        alert("Only admin can add role amounts.");
+        return;
+    }
+
+    const date = safeValue("amount-date", todayDate());
+    const role = safeValue("amount-role").trim().toLowerCase();
+    const recipient = safeValue("amount-recipient").trim();
+    const amount = num(safeValue("amount-value"));
+    const note = safeValue("amount-note").trim();
+
+    if (!["admin", "seller", "manager", "investor"].includes(role) || amount <= 0) {
+        alert("Select a role and enter a valid amount.");
+        return;
+    }
+    if ((role === "seller" || role === "manager") && !recipient) {
+        alert("Please enter the seller/manager name.");
+        return;
+    }
+
+    const form = $("role-amount-form");
+    const button = form?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Add Amount");
+
+    try {
+        const title = `${role.charAt(0).toUpperCase() + role.slice(1)} Income`;
+        const details = [
+            `manual_role_income:${role}`,
+            recipient ? `recipient:${recipient}` : "",
+            note ? note : ""
+        ].filter(Boolean).join(" | ");
+
+        const { error } = await supabaseClient.from("ledger").insert({
+            user_id: currentUserId(),
+            date,
+            type: "Income",
+            title,
+            amount,
+            note: details
+        });
+        if (error) throw error;
+
+        await fetchLedgerFromSupabase();
+        renderLedger();
+        updateDashboard();
+        if (form) form.reset();
+        const dateInput = $("amount-date");
+        if (dateInput) dateInput.value = todayDate();
+        handleAmountRoleChange();
+        closeModalSafe("add-role-amount-modal");
+        alert("Amount added successfully.");
+    } catch (error) {
+        console.error("Add role amount error:", error);
+        alert("Could not add amount:\n" + error.message);
+    } finally {
+        setButtonLoading(button, false, "Add Amount");
+    }
+}
+
+function handleAmountRoleChange() {
+    const role = safeValue("amount-role").toLowerCase();
+    const recipientWrap = $("amount-recipient-wrap");
+    const recipientInput = $("amount-recipient");
+    const needsRecipient = role === "seller" || role === "manager";
+    if (recipientWrap) recipientWrap.style.display = needsRecipient ? "block" : "none";
+    if (recipientInput) recipientInput.required = needsRecipient;
+}
+
 async function saveWithdrawal(event) {
 
     if (event) {
@@ -2662,7 +2737,11 @@ function renderLedger() {
     const roles = ["admin", "investor", "manager", "seller"];
     roles.forEach(role => {
         const roleIncome = generalLedger
-            .filter(item => String(item.type || "").toLowerCase() === "income" && String(item.note || "").toLowerCase().includes(`auto_sale_role:${role}:`))
+            .filter(item => {
+                const note = String(item.note || "").toLowerCase();
+                return String(item.type || "").toLowerCase() === "income" &&
+                    (note.includes(`auto_sale_role:${role}:`) || note.includes(`manual_role_income:${role}`));
+            })
             .reduce((sum,item) => sum + num(item.amount), 0);
         const withdrawn = withdrawalHistory
             .filter(w => String(w.role || "").toLowerCase() === role)
@@ -2678,6 +2757,17 @@ function renderLedger() {
         const key = name.toLowerCase();
         const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
         row.earned += num(sale.seller_profit);
+        sellerTotals.set(key, row);
+    });
+    generalLedger.filter(item => String(item.type || "").toLowerCase() === "income" &&
+        String(item.note || "").toLowerCase().includes("manual_role_income:seller")).forEach(item => {
+        const note = String(item.note || "");
+        const match = note.match(/recipient:([^|]+)/i);
+        const name = String(match?.[1] || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
+        row.earned += num(item.amount);
         sellerTotals.set(key, row);
     });
     withdrawalHistory.filter(w => String(w.role || "").toLowerCase() === "seller").forEach(w => {
@@ -3887,6 +3977,11 @@ document.addEventListener(
                 "submit",
                 saveTransaction
             );
+        }
+
+        const roleAmountForm = $("role-amount-form");
+        if (roleAmountForm) {
+            roleAmountForm.addEventListener("submit", saveRoleAmount);
         }
 
         const withdrawalForm =
