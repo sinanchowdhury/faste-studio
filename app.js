@@ -303,8 +303,11 @@ function addAdminUsersButton() {
     const role =
         String(authProfile?.role || "").toLowerCase();
 
+    // Keep the manual role-income button visible on the Balance page.
     const amountButton = $("add-role-amount-button");
-    if (amountButton) amountButton.style.display = role === "admin" ? "inline-flex" : "none";
+    if (amountButton) amountButton.style.display = "inline-flex";
+
+    // User management remains restricted to admin accounts.
     if (role !== "admin") return;
 
     if ($("admin-users-button")) return;
@@ -571,14 +574,6 @@ function showPage(pageId) {
         }
 
         if (pageId === "balance") {
-            // Refresh admin-only Balance actions whenever Balance is opened.
-            const amountButton = $("add-role-amount-button");
-            if (amountButton) {
-                amountButton.style.display =
-                    String(authProfile?.role || "").trim().toLowerCase() === "admin"
-                        ? "inline-flex"
-                        : "none";
-            }
             renderLedger();
         }
 
@@ -2480,11 +2475,6 @@ async function saveTransaction(event) {
 
 async function saveRoleAmount(event) {
     if (event) event.preventDefault();
-
-    if (String(authProfile?.role || "").toLowerCase() !== "admin") {
-        alert("Only admin can add role amounts.");
-        return;
-    }
 
     const date = safeValue("amount-date", todayDate());
     const role = safeValue("amount-role").trim().toLowerCase();
