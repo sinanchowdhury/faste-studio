@@ -1739,50 +1739,35 @@ function prepareSaleForm() {
    ========================================================= */
 
 function addSaleItemRow() {
+
     const container = $("sale-items-container");
     if (!container) return;
+
     const availableStock = productHouseStock.filter(s => num(s.sets) > 0);
     const row = document.createElement("div");
     row.className = "sale-item-row";
+
     row.innerHTML = `
-        <div class="sale-item-fields">
-            <div>
-                <label class="form-label">Product / Set</label>
-                <input type="search" class="form-input mb-2 sale-stock-search" placeholder="Search product code/type..." oninput="filterProductOptions(this, 'sale-stock-select')">
-                <select class="form-input sale-stock-select" onchange="calcSaleProfit()">
-                    <option value="">Select product</option>
-                    ${availableStock.map(stock => { const p=productsList.find(x=>String(x.id)===String(stock.product_id)); return `<option value="${escapeHtml(stock.id)}">${escapeHtml(p?.code || stock.print_code || '-')} — ${escapeHtml(p?.type || stock.type || '-')} (${num(stock.sets)} sets)</option>`; }).join("")}
-                </select>
-            </div>
-            <div><label class="form-label">Sets</label><input type="number" class="form-input sale-sets" min="1" value="1" oninput="calcSaleProfit()"></div>
-            <div><label class="form-label">Sell Price / Set (৳)</label><input type="number" class="form-input sale-price-per-set" min="0" step="0.01" value="0" oninput="calcSaleProfit()"></div>
-            <div class="flex items-end"><button type="button" class="btn btn-danger w-full" onclick="this.closest('.sale-item-row').remove(); calcSaleProfit();">Remove</button></div>
-        </div>
-        <div class="sale-line-summary">
-            <div><p class="muted text-xs">Available Stock</p><strong class="sale-available-sets">Select product</strong></div>
-            <div><p class="muted text-xs">Sets to Sell</p><strong class="sale-line-sets">1 set</strong></div>
-            <div><p class="muted text-xs">Price × Sets</p><strong class="sale-line-total">৳0.00</strong></div>
-            <div><p class="muted text-xs">Seller / Manager</p><strong class="sale-line-payouts">৳0 / ৳0</strong></div>
-        </div>`;
+        <select class="sale-stock-select" onchange="calcSaleProfit()">
+            <option value="">Select stock</option>
+            ${availableStock.map(stock => `
+                <option value="${stock.id}">
+                    ${escapeHtml((productsList.find(p => String(p.id) === String(stock.product_id))?.code) || stock.print_code || "-")}
+                    - ${escapeHtml((productsList.find(p => String(p.id) === String(stock.product_id))?.type) || stock.type || "-")}
+                    - ${num(stock.sets)} sets
+                </option>
+            `).join("")}
+        </select>
+
+        <input type="number" class="sale-sets" min="1" value="1" placeholder="Sets" oninput="calcSaleProfit()">
+
+        <input type="number" class="sale-price-per-set" min="0" step="0.01" value="0" placeholder="Sell price / set" oninput="calcSaleProfit()">
+
+        <button type="button" onclick="this.closest('.sale-item-row').remove(); calcSaleProfit();">×</button>
+    `;
+
     container.appendChild(row);
     calcSaleProfit();
-}
-
-
-function filterProductOptions(searchInput, selectClass) {
-    const row = searchInput?.closest(".sale-item-row");
-    const select = row?.querySelector(`.${selectClass}`);
-    if (!select) return;
-    const query = String(searchInput.value || "").trim().toLowerCase();
-    Array.from(select.options).forEach((option, index) => {
-        if (index === 0) { option.hidden = false; return; }
-        const matches = option.textContent.toLowerCase().includes(query);
-        option.hidden = !matches;
-    });
-    if (select.selectedOptions.length && select.selectedOptions[0].hidden) {
-        select.value = "";
-        calcSaleProfit();
-    }
 }
 
 function calcSaleProfit() {
@@ -1812,14 +1797,6 @@ function calcSaleProfit() {
             totalCost += sets * num(stock.cost_per_set);
             totalPcs += sets * (num(stock.pcs) / Math.max(num(stock.sets), 1));
         }
-        const availableEl=row.querySelector(".sale-available-sets");
-        const setsEl=row.querySelector(".sale-line-sets");
-        const totalEl=row.querySelector(".sale-line-total");
-        const payoutsEl=row.querySelector(".sale-line-payouts");
-        if (availableEl) availableEl.textContent=stock ? `${num(stock.sets)} sets available` : "Select product";
-        if (setsEl) setsEl.textContent=`${sets} ${sets===1 ? "set" : "sets"}`;
-        if (totalEl) totalEl.textContent=`৳${money(sets*salePrice)}`;
-        if (payoutsEl) payoutsEl.textContent=`৳${money(sets*sellerPerSet)} / ৳${money(sets*managerPerSet)}`;
     });
 
     const grossProfit = totalSale - totalCost - sellerProfit - managerProfit;
@@ -1835,10 +1812,6 @@ function calcSaleProfit() {
     safeText("sale-lbl-manager-profit", money(managerProfit));
     safeText("sale-lbl-investor-profit", money(investorProfit));
     safeText("sale-lbl-admin-profit", money(adminProfit));
-    safeText("sale-top-seller-rate", money(sellerPerSet));
-    safeText("sale-top-manager-rate", money(managerPerSet));
-    safeText("sale-top-seller-total", money(sellerProfit));
-    safeText("sale-top-manager-total", money(managerProfit));
 
     return { totalSets, totalPcs: Math.round(totalPcs), totalCost, totalSale, grossProfit, sellerProfit, managerProfit, investorProfit, adminProfit };
 }
@@ -3316,31 +3289,59 @@ function filterStoresByArea() {
 
 
 function populateStoreSelect() {
-    const select = $("sale-store-id");
-    if (select) {
-        const current=select.value;
-        select.innerHTML='<option value="">Select store</option>'+storeList.map(store=>`<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)} — ${escapeHtml(store.area || "")}</option>`).join("");
-        if (current) select.value=current;
+
+    const select =
+        $("sale-store-id");
+
+    if (!select) return;
+
+    const current =
+        select.value;
+
+    select.innerHTML =
+        `
+        <option value="">
+            Select store
+        </option>
+
+        ${
+            storeList.map(store => `
+                <option value="${store.id}">
+                    ${escapeHtml(store.name)}
+                    -
+                    ${escapeHtml(store.area || "")}
+                </option>
+            `).join("")
+        }
+        `;
+
+    if (current) {
+        select.value = current;
     }
-    const reportSelect=$("report-store-select");
-    const cards=$("report-store-cards");
-    if (!reportSelect) return;
-    const selected=new Set(Array.from(reportSelect.selectedOptions).map(o=>String(o.value)));
-    reportSelect.innerHTML=storeList.map(store=>`<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)}</option>`).join("");
-    selected.forEach(id=>{const option=Array.from(reportSelect.options).find(o=>String(o.value)===id); if(option) option.selected=true;});
-    if (cards) {
-        cards.innerHTML=storeList.length ? storeList.map(store=>`<label class="report-store-card"><input type="checkbox" value="${escapeHtml(store.id)}" ${selected.has(String(store.id))?'checked':''} onchange="toggleReportStore(this)"><span><strong class="block">${escapeHtml(store.name || 'Unnamed store')}</strong><span class="muted text-xs">${escapeHtml(store.area || 'Area not set')}</span></span></label>`).join("") : '<p class="muted p-3">No stores available. Add a store first.</p>';
+
+
+    const reportStoreList = $("report-store-list");
+
+    if (reportStoreList) {
+        const selected = Array.from(
+            reportStoreList.querySelectorAll('input[name="report-store"]:checked')
+        ).map(input => String(input.value));
+
+        reportStoreList.innerHTML = storeList.length ? storeList.map(store => `
+            <label class="report-store-option flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-3 cursor-pointer hover:border-blue-400 hover:bg-blue-50">
+                <input type="checkbox" name="report-store" value="${escapeHtml(String(store.id))}"
+                    ${selected.includes(String(store.id)) ? "checked" : ""}
+                    onchange="generateStoreReport()" class="h-4 w-4">
+                <span class="min-w-0 flex-1">
+                    <span class="block font-semibold text-slate-800">${escapeHtml(store.name || "Unnamed store")}</span>
+                    <span class="block text-xs text-slate-500">${escapeHtml(store.area || "Area not set")}</span>
+                </span>
+                <span class="text-xs text-slate-400">Select</span>
+            </label>
+        `).join("") : '<p class="p-3 text-sm text-slate-500">No stores found. Add a store first.</p>';
     }
-    generateStoreReport();
 }
 
-function toggleReportStore(checkbox) {
-    const select=$("report-store-select");
-    if (!select) return;
-    const option=Array.from(select.options).find(o=>String(o.value)===String(checkbox.value));
-    if (option) option.selected=checkbox.checked;
-    generateStoreReport();
-}
 
 async function deleteStore(id) {
 
@@ -3378,43 +3379,123 @@ async function deleteStore(id) {
 
 
 function generateStoreReport() {
-    const select=$("report-store-select"), body=$("report-table-body"), historyBody=$("report-history-body");
-    if (!select || !body) return;
-    const getItems=sale=>{if(Array.isArray(sale.items))return sale.items;if(typeof sale.items==="string"){try{return JSON.parse(sale.items)||[];}catch(_){return [];}}return [];};
-    const selectedIds=Array.from(select.selectedOptions).map(o=>String(o.value));
-    const selectedSet=new Set(selectedIds);
-    const stores=storeList.filter(s=>selectedSet.has(String(s.id)));
-    const moneyNum=v=>num(v);
-    if(!stores.length){body.innerHTML='<tr><td colspan="6" class="p-4 text-center text-slate-500">Select one or more stores above.</td></tr>';if(historyBody)historyBody.innerHTML='<tr><td colspan="7" class="p-4 text-center text-slate-500">Select one or more stores above.</td></tr>';safeText('report-total-sets',0);safeText('report-total-sales','0.00');safeText('report-total-profit','0.00');return;}
-    const belongs=(sale,id)=>String(sale.store_id ?? '')===String(id)||getItems(sale).some(item=>String(item.store_id ?? sale.store_id ?? '')===String(id));
-    const selectedSales=saleHistory.filter(s=>selectedIds.some(id=>belongs(s,id)));
-    const getCode=item=>{const pid=item?.product_id||item?.product?.id||item?.stock?.product_id;const product=pid?productsList.find(p=>String(p.id)===String(pid)):null;return String(item?.product_code||item?.code||item?.print_code||product?.code||product?.print_code||item?.product?.code||item?.stock?.product?.code||'-');};
-    const getDateRaw=s=>s.created_at||s.sale_date||s.date||s.sold_at||s.updated_at||'';
-    const dateText=raw=>{if(!raw)return '-';const d=new Date(raw);return Number.isNaN(d.getTime())?String(raw):d.toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});};
-    let allRows=[];
-    body.innerHTML=stores.map(store=>{
-        const sales=selectedSales.filter(s=>belongs(s,store.id));
-        let sets=0,saleAmount=0,profit=0;const sold={};
-        sales.forEach(s=>{
-            const items=getItems(s).filter(i=>String(i.store_id ?? s.store_id ?? '')===String(store.id));
-            const useItems=items.length?items:getItems(s);
-            const saleSets=useItems.length?useItems.reduce((n,i)=>n+num(i.sets||i.total_sets),0):num(s.total_sets);
-            sets+=saleSets;
-            saleAmount+=num(s.total_sale);profit+=num(s.gross_profit);
-            if(useItems.length){useItems.forEach(i=>{const code=getCode(i);sold[code]=(sold[code]||0)+num(i.sets||i.total_sets);});}
-            else {const code=getCode(s);sold[code]=(sold[code]||0)+num(s.total_sets);}
-            const raw=getDateRaw(s);
-            if(items.length){items.forEach(i=>allRows.push({raw,date:dateText(raw),store:store.name||'-',area:store.area||'-',code:getCode(i),sets:num(i.sets||i.total_sets),pieces:num(i.pieces||i.total_pieces||num(i.sets||i.total_sets)*num(i.pcs_per_set)),sales:num(i.total_sale||i.sale_total||num(i.sale_price_per_set||i.sell_price_per_set||i.sell_price)*num(i.sets||i.total_sets))}));}
-            else if(!getItems(s).length) allRows.push({raw,date:dateText(raw),store:store.name||'-',area:store.area||'-',code:getCode(s),sets:num(s.total_sets),pieces:num(s.total_pcs||s.total_pieces),sales:num(s.total_sale)});
+    const list = $("report-store-list");
+    const cards = $("report-store-cards");
+    if (!list || !cards) return;
+
+    const selectedIds = Array.from(
+        list.querySelectorAll('input[name="report-store"]:checked')
+    ).map(input => String(input.value));
+    const selectedStores = storeList.filter(store => selectedIds.includes(String(store.id)));
+
+    const getItems = sale => {
+        if (Array.isArray(sale.items)) return sale.items;
+        if (typeof sale.items === "string") {
+            try { const parsed = JSON.parse(sale.items); return Array.isArray(parsed) ? parsed : []; }
+            catch (_) { return []; }
+        }
+        return [];
+    };
+    const saleDateRaw = sale => sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at || "";
+    const formatDateTime = raw => {
+        if (!raw) return "-";
+        const date = new Date(raw);
+        if (Number.isNaN(date.getTime())) return String(raw);
+        return date.toLocaleString("en-GB", {day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit"});
+    };
+    const itemCode = item => {
+        const productId = item?.product_id || item?.product?.id || item?.stock?.product_id;
+        const product = productId ? productsList.find(p => String(p.id) === String(productId)) : null;
+        return String(item?.product_code || item?.code || item?.print_code || item?.product?.code || item?.product?.print_code || item?.stock?.product?.code || product?.code || product?.print_code || "-");
+    };
+    const salesForStore = (storeId) => saleHistory.filter(sale => {
+        if (String(sale.store_id ?? "") === String(storeId)) return true;
+        return getItems(sale).some(item => String(item.store_id ?? "") === String(storeId));
+    });
+
+    const allSelectedSales = selectedStores.flatMap(store => salesForStore(store.id));
+    const uniqueSales = Array.from(new Map(allSelectedSales.map(sale => [String(sale.id), sale])).values());
+    safeText("report-total-sets", uniqueSales.reduce((sum, sale) => sum + num(sale.total_sets), 0));
+    safeText("report-total-sales", money(uniqueSales.reduce((sum, sale) => sum + num(sale.total_sale), 0)));
+    safeText("report-total-profit", money(uniqueSales.reduce((sum, sale) => sum + num(sale.gross_profit), 0)));
+
+    if (!selectedStores.length) {
+        cards.innerHTML = '<div class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-500">Select one or more stores above to view each store’s sales and history.</div>';
+        return;
+    }
+
+    cards.innerHTML = selectedStores.map(store => {
+        const sales = salesForStore(store.id).sort((a,b) => new Date(saleDateRaw(b) || 0) - new Date(saleDateRaw(a) || 0));
+        const totalSets = sales.reduce((sum, sale) => sum + num(sale.total_sets), 0);
+        const totalSale = sales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
+        const totalProfit = sales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
+        const soldSets = {};
+        sales.forEach(sale => {
+            const items = getItems(sale);
+            if (items.length) {
+                items.forEach(item => {
+                    const code = itemCode(item);
+                    soldSets[code] = (soldSets[code] || 0) + num(item.sets || item.total_sets);
+                });
+            } else {
+                const code = itemCode(sale);
+                soldSets[code] = (soldSets[code] || 0) + num(sale.total_sets);
+            }
         });
-        const soldHtml=Object.keys(sold).length?Object.entries(sold).map(([code,count])=>`<div><strong>${escapeHtml(code)}</strong>: ${count} sets</div>`).join(''):'-';
-        return `<tr><td class="p-3">${escapeHtml(store.name||'-')}</td><td class="p-3">${escapeHtml(store.area||'-')}</td><td class="p-3">${soldHtml}</td><td class="p-3 font-semibold">${sets}</td><td class="p-3">${money(saleAmount)}</td><td class="p-3">${money(profit)}</td></tr>`;
-    }).join('');
-    allRows.sort((a,b)=>new Date(b.raw||0).getTime()-new Date(a.raw||0).getTime());
-    if(historyBody) historyBody.innerHTML=allRows.length?allRows.map(r=>`<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">${escapeHtml(r.store)}</td><td class="p-3">${escapeHtml(r.area)}</td><td class="p-3 font-semibold">${escapeHtml(r.code)}</td><td class="p-3">${r.sets}</td><td class="p-3">${r.pieces}</td><td class="p-3">${money(r.sales)}</td></tr>`).join(''):'<tr><td colspan="7" class="p-4 text-center text-slate-500">No sales history found for the selected store(s).</td></tr>';
-    safeText('report-total-sets',selectedSales.reduce((sum,s)=>sum+num(s.total_sets),0));
-    safeText('report-total-sales',money(selectedSales.reduce((sum,s)=>sum+num(s.total_sale),0)));
-    safeText('report-total-profit',money(selectedSales.reduce((sum,s)=>sum+num(s.gross_profit),0)));
+        const soldSetHtml = Object.keys(soldSets).length
+            ? Object.entries(soldSets).map(([code, count]) => `<span class="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">${escapeHtml(code)} · ${count} set${count === 1 ? "" : "s"}</span>`).join(" ")
+            : '<span class="text-sm text-slate-500">No sold sets yet.</span>';
+        const historyRows = [];
+        sales.forEach(sale => {
+            const items = getItems(sale);
+            if (items.length) {
+                items.forEach(item => {
+                    if (item.store_id && String(item.store_id) !== String(store.id) && String(sale.store_id ?? "") !== String(store.id)) return;
+                    const sets = num(item.sets || item.total_sets);
+                    const pieces = num(item.pieces || item.total_pieces || (sets * num(item.pcs_per_set)));
+                    const saleValue = num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * sets));
+                    historyRows.push({raw:saleDateRaw(sale), date:formatDateTime(saleDateRaw(sale)), code:itemCode(item), sets, pieces, saleValue});
+                });
+            } else {
+                historyRows.push({raw:saleDateRaw(sale), date:formatDateTime(saleDateRaw(sale)), code:itemCode(sale), sets:num(sale.total_sets), pieces:num(sale.total_pcs || sale.total_pieces), saleValue:num(sale.total_sale)});
+            }
+        });
+        historyRows.sort((a,b) => new Date(b.raw || 0) - new Date(a.raw || 0));
+        const historyHtml = historyRows.length ? historyRows.map(row => `
+            <tr class="border-b last:border-b-0">
+                <td class="p-3 whitespace-nowrap">${escapeHtml(row.date)}</td>
+                <td class="p-3 font-semibold">${escapeHtml(row.code)}</td>
+                <td class="p-3">${row.sets}</td>
+                <td class="p-3">${row.pieces}</td>
+                <td class="p-3 whitespace-nowrap">${money(row.saleValue)}</td>
+            </tr>
+        `).join("") : '<tr><td colspan="5" class="p-5 text-center text-sm text-slate-500">No sales history found for this store.</td></tr>';
+
+        return `
+            <article class="report-store-card overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                <div class="flex flex-wrap items-start justify-between gap-4 border-b bg-slate-50 p-5">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">${escapeHtml(store.name || "Unnamed store")}</h3>
+                        <p class="mt-1 text-sm text-slate-500">Area: ${escapeHtml(store.area || "-")}</p>
+                    </div>
+                    <span class="rounded-full bg-slate-200 px-3 py-1 text-xs font-semibold text-slate-700">${sales.length} sale record${sales.length === 1 ? "" : "s"}</span>
+                </div>
+                <div class="grid grid-cols-1 gap-3 p-5 sm:grid-cols-3">
+                    <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Total Sets</p><p class="mt-1 text-xl font-bold">${totalSets}</p></div>
+                    <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Total Sales</p><p class="mt-1 text-xl font-bold">${money(totalSale)}</p></div>
+                    <div class="rounded-xl bg-slate-50 p-3"><p class="text-xs text-slate-500">Total Profit</p><p class="mt-1 text-xl font-bold">${money(totalProfit)}</p></div>
+                </div>
+                <div class="px-5 pb-5">
+                    <h4 class="mb-2 font-semibold text-slate-800">Sold Sets / Product Codes</h4>
+                    <div class="flex flex-wrap gap-2">${soldSetHtml}</div>
+                </div>
+                <div class="border-t">
+                    <div class="p-5 pb-3"><h4 class="font-semibold text-slate-800">Sales History</h4><p class="mt-1 text-xs text-slate-500">Newest sales appear first.</p></div>
+                    <div class="overflow-x-auto"><table class="w-full text-sm"><thead><tr class="border-y bg-slate-50 text-left"><th class="p-3">Date & Time</th><th class="p-3">Product Code</th><th class="p-3">Sets</th><th class="p-3">Pieces</th><th class="p-3">Sales</th></tr></thead><tbody>${historyHtml}</tbody></table></div>
+                </div>
+            </article>
+        `;
+    }).join("");
 }
 
 /* =========================================================
