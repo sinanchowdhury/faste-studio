@@ -396,6 +396,12 @@
     </div>
 
 
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+        <div class="card"><p class="muted">Product Types</p><div id="dash-product-count" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">Production Records</p><div id="dash-production-count" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">Active Stores</p><div id="dash-store-count" class="stat-value">0</div></div>
+    </div>
+
     <div class="card">
 
         <div class="flex justify-between items-center mb-4">
@@ -462,7 +468,9 @@
     </div>
 
 
-    <div class="card">
+    <div id="product-card-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-6"></div>
+
+    <div class="card hidden">
 
         <div class="table-wrapper">
 
@@ -1283,6 +1291,8 @@
     </div>
 
 
+    <div id="store-area-summary" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5"></div>
+
     <div class="card mb-6">
 
         <div class="flex flex-wrap gap-4 items-center">
@@ -1366,9 +1376,10 @@
             <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">Store Report</span>
         </div>
 
+        <div id="report-store-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3"></div>
         <select
             id="report-store-select"
-            class="form-input w-full min-h-[48px]"
+            class="form-input w-full min-h-[48px] hidden"
             onchange="generateStoreReport()"
             multiple
             size="5">
@@ -1625,12 +1636,12 @@
 
                 <div>
                     <label class="form-label">Product Code</label>
-                    <input id="p-code" class="form-input" required>
+                    <input id="p-code" class="form-input">
                 </div>
 
                 <div>
                     <label class="form-label">Product Type</label>
-                    <input id="p-type" class="form-input" required>
+                    <input id="p-type" class="form-input">
                 </div>
 
                 <div>
@@ -1650,6 +1661,12 @@
 
             </div>
 
+
+            <div class="mt-5 border-t pt-4">
+                <label class="form-label">Add multiple products (optional)</label>
+                <p class="muted mb-2">One product per line: Code, Type, Full Size (number), Pieces per Set. Example: A01,Board,200,10</p>
+                <textarea id="bulk-products-input" class="form-input" rows="3" placeholder="A01,Board,20x30,10&#10;A02,Tape,10x20,5"></textarea>
+            </div>
 
             <div class="flex justify-end gap-2 mt-6">
 
