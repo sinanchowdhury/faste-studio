@@ -97,6 +97,17 @@
             box-shadow: 0 2px 8px rgba(15, 23, 42, .04);
         }
 
+        
+        .sale-item-row { border:1px solid #d7deea; border-radius:14px; background:#fff; padding:16px; box-shadow:0 3px 10px rgba(15,23,42,.05); }
+        .sale-item-fields { display:grid; grid-template-columns:minmax(190px,2fr) minmax(100px,.7fr) minmax(140px,1fr) auto; gap:12px; align-items:end; }
+        .sale-line-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:12px; }
+        .sale-line-summary>div { background:#f8fafc; border:1px solid #e8edf4; border-radius:10px; padding:10px 12px; min-width:0; }
+        #report-store-cards { max-height:340px; overflow-y:auto; overscroll-behavior:contain; padding:8px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
+        .report-store-card { display:flex; gap:10px; align-items:flex-start; padding:12px; border:1px solid #dbe3ee; border-radius:12px; background:#fff; cursor:pointer; }
+        .report-store-card:has(input:checked) { border-color:#2563eb; background:#eff6ff; box-shadow:0 0 0 1px #2563eb inset; }
+        .report-store-card input { margin-top:3px; }
+        @media(max-width:760px) { .sale-item-fields { grid-template-columns:1fr 1fr; } .sale-line-summary { grid-template-columns:1fr 1fr; } }
+
         .section-title {
             font-size: 22px;
             font-weight: 700;
@@ -912,6 +923,13 @@
             </div>
 
 
+            <div id="sale-top-income-summary" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+                <div class="card bg-slate-50"><p class="muted">Seller Price / Set</p><div id="sale-top-seller-rate" class="stat-value">৳0</div></div>
+                <div class="card bg-slate-50"><p class="muted">Manager Income / Set</p><div id="sale-top-manager-rate" class="stat-value">৳0</div></div>
+                <div class="card bg-slate-50"><p class="muted">Total Seller Income</p><div id="sale-top-seller-total" class="stat-value">৳0</div></div>
+                <div class="card bg-slate-50"><p class="muted">Total Manager Income</p><div id="sale-top-manager-total" class="stat-value">৳0</div></div>
+            </div>
+
             <div class="mb-5">
 
                 <div class="flex justify-between items-center mb-3">
@@ -1342,36 +1360,107 @@
 ========================================================= -->
 
 <section id="page-report" class="page-content">
+
     <div class="mb-6">
-        <h2 class="section-title">Store Report</h2>
-        <p class="muted">View sales, sold product codes, and history separately for each store.</p>
+
+        <h2 class="section-title">
+            Store Report
+        </h2>
+
+        <p class="muted">
+            Analyze sales and profit by store.
+        </p>
+
     </div>
+
 
     <div class="card mb-6 p-5">
-        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+
+        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div>
-                <label class="form-label mb-1">Select Stores</label>
-                <p class="muted text-xs">Tick one or more stores. The list scrolls vertically if there are many stores.</p>
+                <label class="form-label mb-1">Select Store</label>
+                <p class="muted text-xs">Choose one or more stores to view their sales report.</p>
             </div>
-            <div class="flex gap-2">
-                <button type="button" class="btn" onclick="document.querySelectorAll('#report-store-list input').forEach(x=>x.checked=true); generateStoreReport();">Select All</button>
-                <button type="button" class="btn" onclick="document.querySelectorAll('#report-store-list input').forEach(x=>x.checked=false); generateStoreReport();">Clear</button>
-            </div>
+            <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">Store Report</span>
         </div>
-        <div id="report-store-list" class="grid max-h-64 grid-cols-1 gap-2 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2 lg:grid-cols-3">
-            <p class="p-3 text-sm text-slate-500">Loading stores…</p>
-        </div>
+
+        <div id="report-store-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" aria-label="Select stores for report"></div>
+        <select id="report-store-select" class="hidden" multiple aria-hidden="true" tabindex="-1"></select>
+
     </div>
 
-    <div class="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-        <div class="card"><p class="muted">Total Sets</p><div id="report-total-sets" class="stat-value">0</div></div>
-        <div class="card"><p class="muted">Total Sales</p><div id="report-total-sales" class="stat-value">৳0</div></div>
-        <div class="card"><p class="muted">Total Profit</p><div id="report-total-profit" class="stat-value">৳0</div></div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+
+        <div class="card">
+            <p class="muted">Total Sets</p>
+            <div id="report-total-sets" class="stat-value">0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Sales</p>
+            <div id="report-total-sales" class="stat-value">৳0</div>
+        </div>
+
+        <div class="card">
+            <p class="muted">Total Profit</p>
+            <div id="report-total-profit" class="stat-value">৳0</div>
+        </div>
+
     </div>
 
-    <div id="report-store-cards" class="space-y-6">
-        <div class="rounded-xl border border-dashed border-slate-300 p-8 text-center text-slate-500">Select one or more stores above to view each store’s sales and history.</div>
+
+    <div class="card mb-6">
+
+        <div class="p-5 border-b">
+            <h3 class="font-bold text-lg">Sales History by Date</h3>
+            <p class="muted text-xs mt-1">See when each product was sold, which store received it, and how many sets were sold.</p>
+        </div>
+
+        <div class="table-wrapper">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Date</th>
+                        <th class="p-3">Store</th>
+                        <th class="p-3">Area</th>
+                        <th class="p-3">Product Code</th>
+                        <th class="p-3">Sets</th>
+                        <th class="p-3">Pieces</th>
+                        <th class="p-3">Sales</th>
+                    </tr>
+                </thead>
+                <tbody id="report-history-body"></tbody>
+            </table>
+        </div>
+
     </div>
+
+    <div class="card">
+
+        <div class="table-wrapper">
+
+            <table class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Store</th>
+                        <th class="p-3">Area</th>
+                        <th class="p-3">Sold Sets</th>
+                        <th class="p-3">Total Sets</th>
+                        <th class="p-3">Sales</th>
+                        <th class="p-3">Profit</th>
+                    </tr>
+                </thead>
+
+                <tbody id="report-table-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
 </section>
 
 
