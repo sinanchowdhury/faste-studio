@@ -303,10 +303,9 @@ function addAdminUsersButton() {
     const role =
         String(authProfile?.role || "").toLowerCase();
 
-    if (role !== "admin") return;
-
     const amountButton = $("add-role-amount-button");
-    if (amountButton) amountButton.style.display = "inline-flex";
+    if (amountButton) amountButton.style.display = role === "admin" ? "inline-flex" : "none";
+    if (role !== "admin") return;
 
     if ($("admin-users-button")) return;
 
@@ -572,6 +571,14 @@ function showPage(pageId) {
         }
 
         if (pageId === "balance") {
+            // Refresh admin-only Balance actions whenever Balance is opened.
+            const amountButton = $("add-role-amount-button");
+            if (amountButton) {
+                amountButton.style.display =
+                    String(authProfile?.role || "").trim().toLowerCase() === "admin"
+                        ? "inline-flex"
+                        : "none";
+            }
             renderLedger();
         }
 
