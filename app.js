@@ -565,7 +565,6 @@ function showPage(pageId) {
         if (pageId === "sale") {
             prepareSaleForm();
             renderSaleHistory();
-            renderSaleSummary();
         }
 
         if (pageId === "balance") {
@@ -1282,7 +1281,7 @@ function renderProductionRows(rows) {
                 return `${escapeHtml(code)}: ${num(item.sets)} set`;
             }).join("<br>")
             : "-";
-        return `<tr class="history-box-row">
+        return `<tr>
             <td class="p-3">${index+1}</td>
             <td class="p-3">${escapeHtml(p.date || "-")}</td>
             <td class="p-3">${escapeHtml(p.print_code || p.batch_code || p.code || "-")}</td>
@@ -1406,7 +1405,7 @@ function filterProductionHistory() {
     if (!body) return;
     const filtered = productionHistory.filter(p => String(p.print_code || p.batch_code || "").toLowerCase().includes(query));
     if (!filtered.length) {
-        body.innerHTML = `<tr><td colspan="18" class="p-3">No matching production</td></tr>`;
+        body.innerHTML = `<tr><td colspan="17" class="p-3">No matching production</td></tr>`;
         return;
     }
     const costKeys = ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
@@ -1442,31 +1441,6 @@ async function fetchStockFromSupabase() {
 }
 
 
-function renderHouseTypeBreakdown() {
-    const box = $("house-type-breakdown");
-    if (!box) return;
-    const totals = {};
-    productHouseStock.forEach(s => {
-        const pr = productsList.find(p => String(p.id) === String(s.product_id));
-        const type = pr?.type || s.type || "Other";
-        if (!totals[type]) totals[type] = { sets: 0, pcs: 0 };
-        totals[type].sets += num(s.sets);
-        totals[type].pcs += num(s.pcs);
-    });
-    const entries = Object.entries(totals).sort((a,b) => a[0].localeCompare(b[0]));
-    if (!entries.length) {
-        box.innerHTML = "";
-        return;
-    }
-    box.innerHTML = entries.map(([type, v]) => `
-        <div class="card history-summary-box">
-            <div class="text-xs text-slate-500 uppercase">${escapeHtml(type)}</div>
-            <div class="font-bold text-lg mt-1">${num(v.sets)} Sets</div>
-            <div class="text-sm text-slate-500">${num(v.pcs)} Pieces</div>
-        </div>
-    `).join("");
-}
-
 function renderProductHouse() {
     const body=$("product-house-body"); if(!body) return;
     const totalPcs=productHouseStock.reduce((sum,s)=>sum+num(s.pcs),0);
@@ -1484,7 +1458,7 @@ function renderProductHouseRows(rows){
         const pr=productsList.find(p=>String(p.id)===String(s.product_id));
         const code=pr?.code||s.code||s.print_code||"-";
         const type=pr?.type||s.type||"-";
-        return `<tr class="history-box-row">
+        return `<tr>
             <td>${escapeHtml(code)}</td><td>${escapeHtml(type)}</td><td>${num(s.sets)}</td><td>${num(s.pcs)}</td><td>${money(s.cost_per_set)}</td><td>${s.date||"-"}</td>
             <td><button type="button" class="btn btn-primary mr-1" onclick="openProductHouseEdit(${s.id})">Edit</button><button type="button" class="btn btn-danger" onclick="openModal('destroy-modal'); setDestroyStockById(${s.id})">Destroy</button></td>
         </tr>`;
@@ -2264,7 +2238,7 @@ function renderSaleSummary() {
 function renderSaleHistory(rows = saleHistory) {
     const body=$("sale-history-body"); if(!body)return;
     if(!rows.length){body.innerHTML=`<tr><td colspan="14" class="p-3">No sales yet</td></tr>`;return;}
-    body.innerHTML=rows.map(s=>`<tr class="history-box-row">
+    body.innerHTML=rows.map(s=>`<tr>
         <td>${s.date||"-"}</td><td>${escapeHtml(getSaleCodes(s))}</td><td>${escapeHtml(s.seller_name||"-")}</td><td>${escapeHtml(getSaleStoreName(s))}</td>
         <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${money(s.seller_profit)}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
         <td><button type="button" class="btn btn-danger" ${num(s.total_sets)<=0?'disabled':''} onclick="openSaleReturn(${s.id})">Return</button></td>
@@ -2652,12 +2626,12 @@ function renderLedger() {
                 item.type || ""
             ).toLowerCase();
 
-        if (
-            type.includes("income") &&
-            !String(item.note || "").toLowerCase().includes("auto_sale_role:")
-        ) {
-            income += num(item.amount);
-        } else {
+        const note = String(item.note || "").toLowerCase();
+        if (type.includes("income")) {
+            // Role payouts (admin/manager/seller/investor) are allocations of profit,
+            // not business expenses. Withdrawals are counted separately below.
+            if (!note.includes("auto_sale_role:")) income += num(item.amount);
+        } else if (type.includes("expense")) {
             expense += num(item.amount);
         }
     });
@@ -2687,14 +2661,44 @@ function renderLedger() {
     /* role totals: sales income minus withdrawals */
     const roles = ["admin", "investor", "manager", "seller"];
     roles.forEach(role => {
-        const income = generalLedger
+        const roleIncome = generalLedger
             .filter(item => String(item.type || "").toLowerCase() === "income" && String(item.note || "").toLowerCase().includes(`auto_sale_role:${role}:`))
             .reduce((sum,item) => sum + num(item.amount), 0);
         const withdrawn = withdrawalHistory
             .filter(w => String(w.role || "").toLowerCase() === role)
             .reduce((sum,w) => sum + num(w.amount), 0);
-        safeText(`ledger-${role}-tot`, money(income - withdrawn));
+        safeText(`ledger-${role}-tot`, money(roleIncome - withdrawn));
     });
+
+    // Seller-by-seller all-time income, withdrawn total, and remaining payable.
+    const sellerTotals = new Map();
+    saleHistory.forEach(sale => {
+        const name = String(sale.seller_name || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
+        row.earned += num(sale.seller_profit);
+        sellerTotals.set(key, row);
+    });
+    withdrawalHistory.filter(w => String(w.role || "").toLowerCase() === "seller").forEach(w => {
+        const name = String(w.seller_name || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
+        row.withdrawn += num(w.amount);
+        sellerTotals.set(key, row);
+    });
+    const sellerBody = $("seller-income-history-body");
+    if (sellerBody) {
+        const rows = [...sellerTotals.values()].sort((a,b) => a.name.localeCompare(b.name));
+        sellerBody.innerHTML = rows.length ? rows.map(row => `
+            <tr>
+                <td class="p-3 font-semibold">${escapeHtml(row.name)}</td>
+                <td class="p-3">${money(row.earned)}</td>
+                <td class="p-3">${money(row.withdrawn)}</td>
+                <td class="p-3 font-semibold">${money(row.earned-row.withdrawn)}</td>
+            </tr>`).join("") : `<tr><td class="p-3" colspan="4">No seller income history yet</td></tr>`;
+    }
 
 
     const allRows = [
@@ -2718,24 +2722,6 @@ function renderLedger() {
             Number(b.id || 0) -
             Number(a.id || 0)
     );
-
-    // Show the newest balance activity prominently at the top of the Balance page.
-    const topHistoryBody = $("balance-top-history-body");
-    if (topHistoryBody) {
-        const topRows = allRows.slice(0, 8);
-        topHistoryBody.innerHTML = topRows.length
-            ? topRows.map(item => {
-                const withdrawal = item.kind === "withdrawal";
-                return `<tr class="history-box-row">
-                    <td>${escapeHtml(item.date || "-")}</td>
-                    <td><span class="px-2 py-1 rounded-full text-xs font-semibold ${withdrawal ? "bg-amber-100 text-amber-700" : "bg-emerald-100 text-emerald-700"}">${withdrawal ? "Withdrawal" : escapeHtml(item.type || "Income")}</span></td>
-                    <td>${escapeHtml(withdrawal ? (item.role || "-") : (item.title || "-"))}</td>
-                    <td class="font-bold">${money(item.amount)}</td>
-                    <td>${escapeHtml(withdrawal ? (item.note || "-") : (item.note || item.seller_name || "-"))}</td>
-                </tr>`;
-            }).join("")
-            : `<tr><td colspan="5" class="p-4 text-center text-slate-500">No balance history yet.</td></tr>`;
-    }
 
 
     if (!allRows.length) {
@@ -3314,19 +3300,11 @@ async function deleteStore(id) {
 }
 
 
-function clearReportStores() {
-    const select = $("report-store-select");
-    if (!select) return;
-    Array.from(select.options).forEach(o => o.selected = false);
-    generateStoreReport();
-}
-
 function generateStoreReport() {
 
     const select = $("report-store-select");
     const body = $("report-table-body");
     const historyBody = $("report-history-body");
-    const cardsBody = $("report-store-cards");
 
     if (!select || !body) return;
 
@@ -3336,27 +3314,43 @@ function generateStoreReport() {
     if (!selectedStores.length) {
         body.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500">Select at least one store.</td></tr>`;
         if (historyBody) historyBody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-500">Select at least one store.</td></tr>`;
-        if (cardsBody) cardsBody.innerHTML = `<div class="md:col-span-2 xl:col-span-3 p-8 rounded-xl bg-slate-50 text-center text-slate-500">Select a store to see its sales overview.</div>`;
-        safeText("report-total-stores", 0);
         safeText("report-total-sets", 0);
-        safeText("report-total-pcs", 0);
-        safeText("report-total-sales", money(0));
-        safeText("report-total-profit", money(0));
+        safeText("report-total-sales", "0.00");
+        safeText("report-total-profit", "0.00");
         return;
     }
 
     const selectedSales = saleHistory.filter(sale => selectedIds.includes(String(sale.store_id)));
+
     const totalSets = selectedSales.reduce((sum, sale) => sum + num(sale.total_sets), 0);
-    const totalPieces = selectedSales.reduce((sum, sale) => sum + getSalePieces(sale), 0);
     const totalSales = selectedSales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
     const totalProfit = selectedSales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
 
-    const getSaleItemsForReport = (sale) => getSaleItems(sale);
+    const getSaleItemsForReport = (sale) => {
+        if (Array.isArray(sale.items)) return sale.items;
+        if (typeof sale.items === "string") {
+            try { return JSON.parse(sale.items) || []; } catch (_) { return []; }
+        }
+        return [];
+    };
+
     const getItemCode = (item) => {
         const productId = item?.product_id || item?.product?.id || item?.stock?.product_id;
         const product = productId ? productsList.find(p => String(p.id) === String(productId)) : null;
-        return String(item?.product_code || item?.code || item?.print_code || product?.code || product?.print_code || item?.product?.code || item?.product?.print_code || item?.stock?.product?.code || item?.stock?.product?.print_code || "-");
+        return String(
+            item?.product_code ||
+            item?.code ||
+            item?.print_code ||
+            product?.code ||
+            product?.print_code ||
+            item?.product?.code ||
+            item?.product?.print_code ||
+            item?.stock?.product?.code ||
+            item?.stock?.product?.print_code ||
+            "-"
+        );
     };
+
     const getSaleDate = (sale) => {
         const raw = sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at;
         if (!raw) return "-";
@@ -3365,85 +3359,97 @@ function generateStoreReport() {
         return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
     };
 
-    // Store cards make the report easier to scan without opening the comparison table.
-    if (cardsBody) {
-        cardsBody.innerHTML = selectedStores.map(store => {
-            const sales = selectedSales.filter(sale => String(sale.store_id) === String(store.id));
-            const sets = sales.reduce((sum, sale) => sum + num(sale.total_sets), 0);
-            const pieces = sales.reduce((sum, sale) => sum + getSalePieces(sale), 0);
-            const saleAmount = sales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
-            const profit = sales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
-            const soldSetMap = {};
-            sales.forEach(sale => {
-                const items = getSaleItemsForReport(sale);
-                if (items.length) items.forEach(item => {
-                    const code = getItemCode(item);
-                    soldSetMap[code] = (soldSetMap[code] || 0) + num(item.sets || item.total_sets);
-                });
-                else {
-                    const code = getItemCode(sale);
-                    soldSetMap[code] = (soldSetMap[code] || 0) + num(sale.total_sets);
-                }
-            });
-            const codes = Object.entries(soldSetMap).map(([code,count]) => `<span class="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold">${escapeHtml(code)} · ${count} set</span>`).join(" ") || `<span class="text-xs text-slate-400">No sold sets</span>`;
-            return `<div class="report-store-card">
-                <div class="flex items-start justify-between gap-3">
-                    <div><div class="font-extrabold text-lg">${escapeHtml(store.name || "-")}</div><div class="text-xs text-slate-500 mt-1">${escapeHtml(store.area || "Area not set")}</div></div>
-                    <span class="px-2 py-1 rounded-full bg-slate-900 text-white text-xs font-semibold">${sales.length} sale${sales.length === 1 ? "" : "s"}</span>
-                </div>
-                <div class="grid grid-cols-3 gap-2 mt-4">
-                    <div class="rounded-lg bg-slate-50 p-2"><div class="text-[11px] text-slate-500">Sets</div><div class="font-bold">${sets}</div></div>
-                    <div class="rounded-lg bg-slate-50 p-2"><div class="text-[11px] text-slate-500">Pieces</div><div class="font-bold">${pieces}</div></div>
-                    <div class="rounded-lg bg-slate-50 p-2"><div class="text-[11px] text-slate-500">Sales</div><div class="font-bold">${money(saleAmount)}</div></div>
-                </div>
-                <div class="mt-3"><div class="text-xs text-slate-500 mb-2">Sold product sets</div><div class="flex flex-wrap gap-1">${codes}</div></div>
-                <div class="mt-3 pt-3 border-t text-sm flex justify-between"><span class="text-slate-500">Gross Profit</span><strong>${money(profit)}</strong></div>
-            </div>`;
-        }).join("");
-    }
-
     body.innerHTML = selectedStores.map(store => {
         const sales = selectedSales.filter(sale => String(sale.store_id) === String(store.id));
         const sets = sales.reduce((sum, sale) => sum + num(sale.total_sets), 0);
         const saleAmount = sales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
         const profit = sales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
+
         const soldSetMap = {};
         sales.forEach(sale => {
             const items = getSaleItemsForReport(sale);
-            if (items.length) items.forEach(item => {
-                const code = getItemCode(item);
-                soldSetMap[code] = (soldSetMap[code] || 0) + num(item.sets || item.total_sets);
-            });
-            else {
+            if (items.length) {
+                items.forEach(item => {
+                    const code = getItemCode(item);
+                    soldSetMap[code] = (soldSetMap[code] || 0) + num(item.sets || item.total_sets);
+                });
+            } else {
                 const code = getItemCode(sale);
                 soldSetMap[code] = (soldSetMap[code] || 0) + num(sale.total_sets);
             }
         });
-        const soldSetsHtml = Object.keys(soldSetMap).length ? Object.entries(soldSetMap).map(([code,count]) => `<span class="inline-flex px-2 py-1 rounded-full bg-slate-100 text-slate-700 text-xs font-semibold mr-1 mb-1">${escapeHtml(code)}: ${count}</span>`).join("") : "-";
-        return `<tr class="history-box-row"><td class="p-3 font-semibold">${escapeHtml(store.name)}</td><td class="p-3">${escapeHtml(store.area || "-")}</td><td class="p-3">${soldSetsHtml}</td><td class="p-3 font-semibold">${sets}</td><td class="p-3">${money(saleAmount)}</td><td class="p-3 font-semibold">${money(profit)}</td></tr>`;
+
+        const soldSetsHtml = Object.keys(soldSetMap).length
+            ? Object.entries(soldSetMap).map(([code, count]) => `<div><strong>${escapeHtml(code)}</strong>: ${count} set</div>`).join("")
+            : "-";
+
+        return `
+            <tr>
+                <td class="p-3">${escapeHtml(store.name)}</td>
+                <td class="p-3">${escapeHtml(store.area || "-")}</td>
+                <td class="p-3">${soldSetsHtml}</td>
+                <td class="p-3 font-semibold">${sets}</td>
+                <td class="p-3">${money(saleAmount)}</td>
+                <td class="p-3">${money(profit)}</td>
+            </tr>
+        `;
     }).join("");
 
     if (historyBody) {
         const rows = [];
         selectedSales.forEach(sale => {
-            const store = storeList.find(st => String(st.id) === String(sale.store_id));
+            const store = storeList.find(s => String(s.id) === String(sale.store_id));
             const items = getSaleItemsForReport(sale);
             const date = getSaleDate(sale);
-            if (items.length) items.forEach(item => {
-                const sets = num(item.sets || item.total_sets);
-                const pieces = num(item.pieces || item.total_pieces || (sets * num(item.pcs_per_set || item.pcsSet)));
-                const saleValue = num(item.total_sale || item.sale_total || (num(item.sell_price_per_set || item.sell_price || item.sale_price_per_set) * sets));
-                rows.push({dateValue: sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at || "", date, store: store?.name || sale.store_name || "-", area: store?.area || "-", code: getItemCode(item), sets, pieces, saleValue});
-            });
-            else rows.push({dateValue: sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at || "", date, store: store?.name || sale.store_name || "-", area: store?.area || "-", code: getItemCode(sale), sets: num(sale.total_sets), pieces: getSalePieces(sale), saleValue: num(sale.total_sale)});
+
+            if (items.length) {
+                items.forEach(item => {
+                    const sets = num(item.sets || item.total_sets);
+                    const pieces = num(item.pieces || item.total_pieces || (sets * num(item.pcs_per_set)));
+                    const saleValue = num(item.total_sale || item.sale_total || (num(item.sell_price_per_set || item.sell_price) * sets));
+                    rows.push({
+                        dateValue: sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at || "",
+                        date,
+                        store: store?.name || sale.store_name || "-",
+                        area: store?.area || "-",
+                        code: getItemCode(item),
+                        sets,
+                        pieces,
+                        saleValue
+                    });
+                });
+            } else {
+                rows.push({
+                    dateValue: sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at || "",
+                    date,
+                    store: store?.name || sale.store_name || "-",
+                    area: store?.area || "-",
+                    code: getItemCode(sale),
+                    sets: num(sale.total_sets),
+                    pieces: num(sale.total_pieces),
+                    saleValue: num(sale.total_sale)
+                });
+            }
         });
-        rows.sort((a,b) => new Date(b.dateValue || 0) - new Date(a.dateValue || 0));
-        historyBody.innerHTML = rows.length ? rows.map(row => `<tr class="report-history-row"><td>${escapeHtml(row.date)}</td><td>${escapeHtml(row.store)}</td><td>${escapeHtml(row.area)}</td><td class="font-semibold">${escapeHtml(row.code)}</td><td>${row.sets}</td><td>${row.pieces}</td><td class="font-semibold">${money(row.saleValue)}</td></tr>`).join("") : `<tr><td colspan="7" class="p-4 text-center text-slate-500">No sales history found.</td></tr>`;
+
+        rows.sort((a, b) => new Date(b.dateValue || 0) - new Date(a.dateValue || 0));
+
+        historyBody.innerHTML = rows.length
+            ? rows.map(row => `
+                <tr class="border-b">
+                    <td class="p-3 whitespace-nowrap">${escapeHtml(row.date)}</td>
+                    <td class="p-3">${escapeHtml(row.store)}</td>
+                    <td class="p-3">${escapeHtml(row.area)}</td>
+                    <td class="p-3 font-semibold">${escapeHtml(row.code)}</td>
+                    <td class="p-3">${row.sets}</td>
+                    <td class="p-3">${row.pieces}</td>
+                    <td class="p-3">${money(row.saleValue)}</td>
+                </tr>
+            `).join("")
+            : `<tr><td colspan="7" class="p-4 text-center text-slate-500">No sales history found.</td></tr>`;
     }
 
-    safeText("report-total-stores", selectedStores.length);
     safeText("report-total-sets", totalSets);
-    safeText("report-total-pcs", totalPieces);
     safeText("report-total-sales", money(totalSales));
     safeText("report-total-profit", money(totalProfit));
 }
@@ -3911,21 +3917,6 @@ document.addEventListener(
                 "submit",
                 saveDestroy
             );
-        }
-
-        const editProductionForm = $("edit-production-form");
-        if (editProductionForm) {
-            editProductionForm.addEventListener("submit", saveProductionEdit);
-        }
-
-        const editProductHouseForm = $("edit-product-house-form");
-        if (editProductHouseForm) {
-            editProductHouseForm.addEventListener("submit", saveProductHouseEdit);
-        }
-
-        const saleReturnForm = $("sale-return-form");
-        if (saleReturnForm) {
-            saleReturnForm.addEventListener("submit", saveSaleReturn);
         }
 
 
