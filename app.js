@@ -709,129 +709,88 @@ async function fetchProductsFromSupabase() {
 
 
 async function saveProduct(event) {
-
-    if (event) {
-        event.preventDefault();
-    }
-
+    if (event) event.preventDefault();
     const form = $("product-form");
-
-    const code =
-        safeValue("p-code").trim();
-
-    const type =
-        safeValue("p-type").trim();
-
-    const fullSize =
-        num(safeValue("p-full-size"));
-
-    const pcsSet =
-        num(safeValue("p-pcs-set"));
-
-    const pcSize =
-        num(safeValue("p-pc-size"));
-
-    if (!code || !type) {
-        alert("Product code and type are required.");
+    const bulkText = safeValue("bulk-products-input").trim();
+    let records = [];
+    if (bulkText) {
+        records = bulkText.split(/\r?\n/).map(line => line.split(",").map(v => v.trim())).filter(parts => parts.some(Boolean)).map(parts => {
+            const fullSize = num(parts[2]);
+            const pcsSet = num(parts[3]);
+            return { code: parts[0] || "", type: parts[1] || "", full_size: fullSize, pcs_set: pcsSet, pc_size: pcsSet > 0 ? fullSize / pcsSet : 0 };
+        });
+    } else {
+        const fullSize = num(safeValue("p-full-size"));
+        const pcsSet = num(safeValue("p-pcs-set"));
+        records = [{ code: safeValue("p-code").trim(), type: safeValue("p-type").trim(), full_size: fullSize, pcs_set: pcsSet, pc_size: num(safeValue("p-pc-size")) }];
+    }
+    if (!records.length || records.some(p => !p.code || !p.type || p.full_size <= 0 || p.pcs_set <= 0)) {
+        alert("Enter valid products. Bulk format: Code, Type, Full Size (number), Pieces per Set.");
         return;
     }
-
-    if (fullSize <= 0 || pcsSet <= 0) {
-        alert("Enter valid size and pieces per set.");
-        return;
-    }
-
-    const button =
-        form?.querySelector(
-            'button[type="submit"]'
-        );
-
+    const button = form?.querySelector('button[type="submit"]');
     setButtonLoading(button, true);
-
     try {
-
-        const {
-            error
-        } = await supabaseClient
-            .from("products")
-            .insert({
-                user_id: currentUserId(),
-                code: code,
-                type: type,
-                full_size: fullSize,
-                pcs_set: pcsSet,
-                pc_size: pcSize
-            });
-
-        if (error) {
-            throw error;
-        }
-
+        const { error } = await supabaseClient.from("products").insert(records.map(p => ({ ...p, user_id: currentUserId() })));
+        if (error) throw error;
         await fetchProductsFromSupabase();
-
-        renderProductList();
-
-        if (form) {
-            form.reset();
-        }
-
-        calcPieceSize();
-
-        closeModalSafe("add-product-modal");
-
-        alert("Product saved successfully.");
-
+        renderProductList(); updateDashboard();
+        if (form) form.reset(); calcPieceSize(); closeModalSafe("add-product-modal");
+        alert(`${records.length} product${records.length === 1 ? "" : "s"} saved successfully.`);
     } catch (error) {
-
-        console.error(
-            "Save product error:",
-            error
-        );
-
-        alert(
-            "Product save failed:\n" +
-            error.message
-        );
-
-    } finally {
-
-        setButtonLoading(
-            button,
-            false,
-            "Save Product"
-        );
-    }
+        console.error("Save product error:", error);
+        alert("Product save failed:\n" + error.message);
+    } finally { setButtonLoading(button, false, "Save Product"); }
 }
 
+async function deleteProduct(id) {
+    const product = productsList.find(p => String(p.id) === String(id));
+    if (!product) return;
+    if (productHouseStock.some(s => String(s.product_id) === String(id))) {
+        alert("This product is used in Product House stock. Remove/destroy its stock first.");
+        return;
+    }
+    if (!confirm(`Delete product ${product.code || product.type}?`)) return;
+    try {
+        const { error } = await supabaseClient.from("products").delete().eq("id", id);
+        if (error) throw error;
+        await fetchProductsFromSupabase(); renderProductList(); updateDashboard();
+        alert("Product deleted.");
+    } catch (error) { alert("Product delete failed:\n" + error.message); }
+}
 
 function renderProductList() {
-    const body = $("product-list-body");
-    if (!body) return;
-    if (!productsList.length) {
-        body.innerHTML = `<tr><td colspan="7" class="p-3">No products yet</td></tr>`;
-        return;
-    }
+    const body = $("product-list-body"), grid = $("product-card-grid");
     const query = safeValue("search-product-input").trim().toLowerCase();
-    const rows = productsList.filter(p =>
-        `${p.code || ""} ${p.type || ""}`.toLowerCase().includes(query)
-    );
-    if (!rows.length) {
-        body.innerHTML = `<tr><td colspan="7" class="p-3">No matching products</td></tr>`;
-        return;
+    const rows = productsList.filter(p => `${p.code || ""} ${p.type || ""} ${p.full_size ?? ""}`.toLowerCase().includes(query));
+    if (body) body.innerHTML = rows.length ? rows.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.code || "-")}</td><td>${escapeHtml(p.type || "-")}</td><td>${escapeHtml(p.full_size ?? "-")}</td><td>${num(p.pcs_set)}</td><td>${escapeHtml(p.pc_size ?? "-")}</td><td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td></tr>`).join("") : `<tr><td colspan="7" class="p-3">No products found</td></tr>`;
+    const breakdown = $("product-type-breakdown-cards");
+    if (breakdown) {
+        const types = new Map(); productsList.forEach(p => { const key = p.type || "Unknown"; types.set(key, (types.get(key) || 0) + 1); });
+        breakdown.innerHTML = [...types].map(([type, count]) => `<div class="card"><p class="muted">${escapeHtml(type)}</p><div class="stat-value">${count}</div><p class="muted">product codes</p></div>`).join("");
     }
-    body.innerHTML = rows.map((p, index) => `
-        <tr>
-            <td>${index + 1}</td>
-            <td>${escapeHtml(p.code || "-")}</td>
-            <td>${escapeHtml(p.type || "-")}</td>
-            <td>${escapeHtml(p.full_size ?? "-")}</td>
-            <td>${num(p.pcs_set)}</td>
-            <td>${escapeHtml(p.pc_size ?? "-")}</td>
-            <td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td>
-        </tr>
-    `).join("");
+    if (grid) grid.innerHTML = rows.length ? rows.map(p => `<article class="card border-t-4 border-t-slate-800 hover:shadow-md transition-shadow"><div class="flex justify-between gap-3 items-start"><div><p class="muted">PRODUCT CODE</p><h3 class="text-xl font-extrabold">${escapeHtml(p.code || "-")}</h3><p class="text-slate-600 mt-1">${escapeHtml(p.type || "-")}</p></div><span class="rounded-lg bg-slate-100 px-3 py-1 text-sm font-semibold">${num(p.pcs_set)} pcs/set</span></div><div class="grid grid-cols-2 gap-3 mt-5"><div class="rounded-lg bg-slate-50 p-3"><p class="muted">Full Size</p><strong>${escapeHtml(p.full_size ?? "-")}</strong></div><div class="rounded-lg bg-slate-50 p-3"><p class="muted">Piece Size</p><strong>${escapeHtml(p.pc_size ?? "-")}</strong></div></div><div class="flex items-center justify-between mt-4"><span class="muted">${p.created_at ? new Date(p.created_at).toLocaleDateString() : "Product"}</span><button type="button" class="btn btn-danger" onclick="deleteProduct(${JSON.stringify(p.id)})">Delete</button></div></article>`).join("") : `<div class="card empty-state sm:col-span-2 xl:col-span-3">${productsList.length ? "No matching products found." : "No products added yet. Click + Add Product to begin."}</div>`;
 }
 
+function filterProductOptions(input, selectClass) {
+    const row = input?.closest(".production-item-row, .sale-item-row");
+    const select = row?.querySelector("." + selectClass);
+    if (!select) return;
+    const query = input.value.trim().toLowerCase();
+    const current = select.value;
+    let source = [];
+    if (selectClass === "prod-product-select") {
+        source = productsList.map(p => ({ id: p.id, label: `${p.code || ""} - ${p.type || ""}`, raw: p }));
+    } else {
+        source = productHouseStock.filter(s => num(s.sets) > 0).map(s => {
+            const p = productsList.find(x => String(x.id) === String(s.product_id));
+            return { id: s.id, label: `${p?.code || s.print_code || ""} - ${p?.type || s.type || ""} (${num(s.sets)} sets)`, raw: s };
+        });
+    }
+    const filtered = source.filter(item => !query || item.label.toLowerCase().includes(query));
+    select.innerHTML = '<option value="">Select product</option>' + filtered.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join("");
+    if (filtered.some(item => String(item.id) === String(current))) select.value = current;
+}
 
 /* =========================================================
    PRODUCTION
@@ -896,7 +855,8 @@ function addProdItemRow() {
         "production-item-row";
 
     row.innerHTML = `
-        <select class="prod-product-select">
+        <input type="search" class="form-input mb-2 prod-product-search" placeholder="Search product code/type..." oninput="filterProductOptions(this, 'prod-product-select')">
+        <select class="form-input prod-product-select" onchange="calcProdCosts()">
             <option value="">Select product</option>
 
             ${productsList.map(p => `
@@ -1297,13 +1257,32 @@ function renderProductionRows(rows) {
             ${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}
             <td class="p-3 font-bold">৳${money(p.total_cost)}</td>
             <td class="p-3">৳${money(p.cost_per_set)}</td>
-            <td class="p-3"><button type="button" class="btn btn-primary" onclick="openProductionEdit(${p.id})">Edit</button></td>
+            <td class="p-3 whitespace-nowrap"><button type="button" class="btn btn-primary mr-1" onclick="openProductionEdit(${JSON.stringify(p.id)})">Edit</button><button type="button" class="btn btn-danger" onclick="deleteProduction(${JSON.stringify(p.id)})">Delete</button></td>
         </tr>`;
     }).join("");
 }
 
 function renderProductionHistory() {
     renderProductionRows(productionHistory);
+}
+
+async function deleteProduction(id) {
+    const production = productionHistory.find(p => String(p.id) === String(id));
+    if (!production) return;
+    const label = production.print_code || production.batch_code || production.code || id;
+    if (!confirm(`Delete production ${label}? Stock rows created by this production will also be removed. This cannot be undone.`)) return;
+    try {
+        const { error: stockError } = await supabaseClient.from("stock").delete().eq("production_id", production.id);
+        if (stockError) throw stockError;
+        const { error } = await supabaseClient.from("productions").delete().eq("id", production.id);
+        if (error) throw error;
+        await Promise.all([fetchProductionFromSupabase(), fetchStockFromSupabase()]);
+        renderProductionHistory(); renderProdSummary(); renderProductHouse(); renderSaleSummary(); updateDashboard();
+        alert("Production and its remaining stock rows deleted.");
+    } catch (error) {
+        console.error("Delete production error:", error);
+        alert("Production delete failed:\n" + error.message);
+    }
 }
 
 function openProductionEdit(id) {
@@ -1452,11 +1431,23 @@ function renderProductHouse() {
     const totalPcs=productHouseStock.reduce((sum,s)=>sum+num(s.pcs),0);
     const totalSets=productHouseStock.reduce((sum,s)=>sum+num(s.sets),0);
     safeText("house-total-pcs",totalPcs); safeText("house-total-sets",totalSets);
-    if(!productHouseStock.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No stock available</td></tr>`; return;}
-    renderProductHouseRows(productHouseStock);
     renderHouseTypeBreakdown();
+    if(!productHouseStock.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No stock available yet. Save a production record to add stock.</td></tr>`; return;}
+    renderProductHouseRows(productHouseStock);
 }
 
+function renderHouseTypeBreakdown() {
+    const box = $("house-type-breakdown"); if (!box) return;
+    const totals = new Map();
+    productsList.forEach(p => { const type = p.type || "Unknown"; const row = totals.get(type) || { sets: 0, pieces: 0, codes: new Set() }; row.codes.add(p.code || "-"); totals.set(type, row); });
+    productHouseStock.forEach(s => {
+        const p = productsList.find(x => String(x.id) === String(s.product_id));
+        const type = p?.type || s.type || "Unknown";
+        const row = totals.get(type) || { sets: 0, pieces: 0, codes: new Set() };
+        row.sets += num(s.sets); row.pieces += num(s.pcs); row.codes.add(p?.code || s.print_code || "-"); totals.set(type, row);
+    });
+    box.innerHTML = totals.size ? [...totals].sort((a,b) => b[1].sets-a[1].sets).map(([type,v]) => `<div class="card border-t-4 border-t-slate-700"><p class="muted">${escapeHtml(type)}</p><div class="stat-value">${v.sets} <span class="text-sm font-semibold">sets</span></div><div class="text-sm text-slate-600 mt-2">${v.pieces} pieces</div><div class="muted mt-1">${v.codes.size} product code(s)</div></div>`).join("") : `<div class="card muted">Add products and save production to see type-wise stock.</div>`;
+}
 function renderProductHouseRows(rows){
     const body=$("product-house-body"); if(!body)return;
     if(!rows.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No matching stock</td></tr>`;return;}
@@ -1741,48 +1732,44 @@ function prepareSaleForm() {
 function addSaleItemRow() {
     const container = $("sale-items-container");
     if (!container) return;
+
     const availableStock = productHouseStock.filter(s => num(s.sets) > 0);
     const row = document.createElement("div");
     row.className = "sale-item-row";
     row.innerHTML = `
         <div class="sale-item-fields">
             <div>
-                <label class="form-label">Product / Set</label>
-                <input type="search" class="form-input mb-2 sale-stock-search" placeholder="Search product code/type..." oninput="filterProductOptions(this, 'sale-stock-select')">
+                <label class="form-label">Product / Stock</label>
+                <input type="search" class="form-input mb-2 sale-stock-search" placeholder="Search code/type..." oninput="filterProductOptions(this, 'sale-stock-select')">
                 <select class="form-input sale-stock-select" onchange="calcSaleProfit()">
                     <option value="">Select product</option>
-                    ${availableStock.map(stock => { const p=productsList.find(x=>String(x.id)===String(stock.product_id)); return `<option value="${escapeHtml(stock.id)}">${escapeHtml(p?.code || stock.print_code || '-')} — ${escapeHtml(p?.type || stock.type || '-')} (${num(stock.sets)} sets)</option>`; }).join("")}
+                    ${availableStock.map(stock => {
+                        const product = productsList.find(p => String(p.id) === String(stock.product_id));
+                        return `<option value="${escapeHtml(stock.id)}">${escapeHtml(product?.code || stock.print_code || "-")} - ${escapeHtml(product?.type || stock.type || "-")} (${num(stock.sets)} sets)</option>`;
+                    }).join("")}
                 </select>
             </div>
-            <div><label class="form-label">Sets</label><input type="number" class="form-input sale-sets" min="1" value="1" oninput="calcSaleProfit()"></div>
-            <div><label class="form-label">Sell Price / Set (৳)</label><input type="number" class="form-input sale-price-per-set" min="0" step="0.01" value="0" oninput="calcSaleProfit()"></div>
-            <div class="flex items-end"><button type="button" class="btn btn-danger w-full" onclick="this.closest('.sale-item-row').remove(); calcSaleProfit();">Remove</button></div>
+            <div>
+                <label class="form-label">Sets to Sell</label>
+                <input type="number" class="form-input sale-sets" min="1" value="1" placeholder="Sets" oninput="calcSaleProfit()">
+            </div>
+            <div>
+                <label class="form-label">Sell Price / Set (৳)</label>
+                <input type="number" class="form-input sale-price-per-set" min="0" step="0.01" value="0" placeholder="Sell price / set" oninput="calcSaleProfit()">
+            </div>
+            <div class="flex items-end">
+                <button type="button" class="btn btn-danger w-full" onclick="this.closest('.sale-item-row').remove(); calcSaleProfit();">Remove</button>
+            </div>
         </div>
         <div class="sale-line-summary">
             <div><p class="muted text-xs">Available Stock</p><strong class="sale-available-sets">Select product</strong></div>
-            <div><p class="muted text-xs">Sets to Sell</p><strong class="sale-line-sets">1 set</strong></div>
+            <div><p class="muted text-xs">Sale Quantity</p><strong class="sale-line-sets">1 set</strong></div>
             <div><p class="muted text-xs">Price × Sets</p><strong class="sale-line-total">৳0.00</strong></div>
             <div><p class="muted text-xs">Seller / Manager</p><strong class="sale-line-payouts">৳0 / ৳0</strong></div>
-        </div>`;
+        </div>
+    `;
     container.appendChild(row);
     calcSaleProfit();
-}
-
-
-function filterProductOptions(searchInput, selectClass) {
-    const row = searchInput?.closest(".sale-item-row");
-    const select = row?.querySelector(`.${selectClass}`);
-    if (!select) return;
-    const query = String(searchInput.value || "").trim().toLowerCase();
-    Array.from(select.options).forEach((option, index) => {
-        if (index === 0) { option.hidden = false; return; }
-        const matches = option.textContent.toLowerCase().includes(query);
-        option.hidden = !matches;
-    });
-    if (select.selectedOptions.length && select.selectedOptions[0].hidden) {
-        select.value = "";
-        calcSaleProfit();
-    }
 }
 
 function calcSaleProfit() {
@@ -1812,14 +1799,15 @@ function calcSaleProfit() {
             totalCost += sets * num(stock.cost_per_set);
             totalPcs += sets * (num(stock.pcs) / Math.max(num(stock.sets), 1));
         }
-        const availableEl=row.querySelector(".sale-available-sets");
-        const setsEl=row.querySelector(".sale-line-sets");
-        const totalEl=row.querySelector(".sale-line-total");
-        const payoutsEl=row.querySelector(".sale-line-payouts");
-        if (availableEl) availableEl.textContent=stock ? `${num(stock.sets)} sets available` : "Select product";
-        if (setsEl) setsEl.textContent=`${sets} ${sets===1 ? "set" : "sets"}`;
-        if (totalEl) totalEl.textContent=`৳${money(sets*salePrice)}`;
-        if (payoutsEl) payoutsEl.textContent=`৳${money(sets*sellerPerSet)} / ৳${money(sets*managerPerSet)}`;
+
+        const availableEl = row.querySelector(".sale-available-sets");
+        const setsEl = row.querySelector(".sale-line-sets");
+        const totalEl = row.querySelector(".sale-line-total");
+        const payoutsEl = row.querySelector(".sale-line-payouts");
+        if (availableEl) availableEl.textContent = stock ? `${num(stock.sets)} sets in stock` : "Select product";
+        if (setsEl) setsEl.textContent = `${sets} ${sets === 1 ? "set" : "sets"}`;
+        if (totalEl) totalEl.textContent = `৳${money(sets * salePrice)}`;
+        if (payoutsEl) payoutsEl.textContent = `৳${money(sets * sellerPerSet)} / ৳${money(sets * managerPerSet)}`;
     });
 
     const grossProfit = totalSale - totalCost - sellerProfit - managerProfit;
@@ -2259,11 +2247,16 @@ function getSaleCodes(s) {
 
 function getSalePieces(s) {
     if (num(s.total_pcs)) return num(s.total_pcs);
-    return getSaleItems(s).reduce((sum, i) => sum + num(i.sets) * num(i.pcs_per_set || i.pcsSet || 0), 0);
+    return getSaleItems(s).reduce((sum, i) => {
+        const productId = i.product_id || i.productId || i.product?.id;
+        const product = productsList.find(p => String(p.id) === String(productId));
+        const piecesPerSet = i.pcs_per_set || i.pcsSet || i.pcs_set || i.product?.pcs_set || product?.pcs_set || 0;
+        return sum + num(i.sets) * num(piecesPerSet);
+    }, 0);
 }
 
 function renderSaleSummary() {
-    safeText("sale-summary-total-sets", saleHistory.reduce((sum,s) => sum + num(s.total_sets), 0));
+    safeText("sale-summary-total-sets", saleHistory.reduce((sum,s) => sum + (num(s.total_sets) || getSaleItems(s).reduce((n,item) => n + num(item.sets), 0)), 0));
     safeText("sale-summary-total-pcs", saleHistory.reduce((sum,s) => sum + getSalePieces(s), 0));
     safeText("sale-summary-total-sale", money(saleHistory.reduce((sum,s) => sum + num(s.total_sale), 0)));
 }
@@ -2831,11 +2824,12 @@ function renderLedger() {
     ];
 
 
-    allRows.sort(
-        (a, b) =>
-            Number(b.id || 0) -
-            Number(a.id || 0)
-    );
+    const rowTimestamp = item => {
+        const raw = item.created_at || item.date || item.withdrawal_date || item.updated_at;
+        const parsed = raw ? new Date(raw).getTime() : NaN;
+        return Number.isFinite(parsed) ? parsed : Number(item.id || 0);
+    };
+    allRows.sort((a, b) => rowTimestamp(b) - rowTimestamp(a));
 
 
     if (!allRows.length) {
@@ -3269,10 +3263,14 @@ function renderStores() {
         if (areas.includes(currentArea)) areaSelect.value = currentArea;
     }
 
-    safeText(
-        "store-count-label",
-        filtered.length
-    );
+    safeText("store-count-label", `${filtered.length} shops${areaFilter ? ` in ${safeValue("store-area-filter")}` : " total"}`);
+    const summary = $("store-area-summary");
+    if (summary) {
+        const counts = new Map();
+        storeList.forEach(store => { const area = String(store.area || "Unassigned").trim() || "Unassigned"; counts.set(area, (counts.get(area) || 0) + 1); });
+        summary.innerHTML = `<div class="card bg-slate-950 text-white"><p class="text-slate-300 text-sm">Total Shops</p><div class="text-3xl font-extrabold mt-2">${storeList.length}</div></div>` + [...counts].sort((a,b)=>b[1]-a[1]).map(([area,count])=>`<div class="card"><p class="muted">${escapeHtml(area)}</p><div class="stat-value">${count}</div><p class="muted">shops in this area</p></div>`).join("");
+    }
+    populateStoreSelect();
 
     if (!filtered.length) {
 
@@ -3305,8 +3303,6 @@ function renderStores() {
                 </td>
             </tr>
         `).join("");
-
-    populateStoreSelect();
 }
 
 
@@ -3318,29 +3314,36 @@ function filterStoresByArea() {
 function populateStoreSelect() {
     const select = $("sale-store-id");
     if (select) {
-        const current=select.value;
-        select.innerHTML='<option value="">Select store</option>'+storeList.map(store=>`<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)} — ${escapeHtml(store.area || "")}</option>`).join("");
-        if (current) select.value=current;
+        const current = select.value;
+        select.innerHTML = '<option value="">Select store</option>' + storeList.map(store => `<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)} - ${escapeHtml(store.area || "")}</option>`).join("");
+        if (current) select.value = current;
     }
-    const reportSelect=$("report-store-select");
-    const cards=$("report-store-cards");
+    const reportSelect = $("report-store-select");
     if (!reportSelect) return;
-    const selected=new Set(Array.from(reportSelect.selectedOptions).map(o=>String(o.value)));
-    reportSelect.innerHTML=storeList.map(store=>`<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)}</option>`).join("");
-    selected.forEach(id=>{const option=Array.from(reportSelect.options).find(o=>String(o.value)===id); if(option) option.selected=true;});
-    if (cards) {
-        cards.innerHTML=storeList.length ? storeList.map(store=>`<label class="report-store-card"><input type="checkbox" value="${escapeHtml(store.id)}" ${selected.has(String(store.id))?'checked':''} onchange="toggleReportStore(this)"><span><strong class="block">${escapeHtml(store.name || 'Unnamed store')}</strong><span class="muted text-xs">${escapeHtml(store.area || 'Area not set')}</span></span></label>`).join("") : '<p class="muted p-3">No stores available. Add a store first.</p>';
-    }
+    const selected = Array.from(reportSelect.selectedOptions).map(o => String(o.value));
+    reportSelect.innerHTML = storeList.map(store => `<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)}</option>`).join("");
+    selected.forEach(id => { const option = Array.from(reportSelect.options).find(o => String(o.value) === id); if (option) option.selected = true; });
+    renderReportStoreCards();
+}
+
+function renderReportStoreCards() {
+    const cards = $("report-store-cards"), select = $("report-store-select");
+    if (!cards || !select) return;
+    const selected = new Set(Array.from(select.selectedOptions).map(o => String(o.value)));
+    cards.innerHTML = storeList.length ? storeList.map(store => {
+        const id = String(store.id), checked = selected.has(id);
+        return `<label class="card cursor-pointer hover:border-slate-500 transition-colors ${checked ? 'border-slate-900 ring-1 ring-slate-900' : ''}"><div class="flex items-start gap-3"><input type="checkbox" class="mt-1" ${checked ? 'checked' : ''} onchange="toggleReportStore(${JSON.stringify(id)}, this.checked)"><div><div class="font-bold">${escapeHtml(store.name || 'Unnamed shop')}</div><div class="muted mt-1">${escapeHtml(store.area || 'Area not set')}</div><div class="text-xs text-slate-500 mt-2">${escapeHtml(store.owner || '')}${store.phone ? ' · ' + escapeHtml(store.phone) : ''}</div></div></div></label>`;
+    }).join('') : '<div class="empty-state">No stores added yet.</div>';
+}
+
+function toggleReportStore(id, checked) {
+    const select = $("report-store-select"); if (!select) return;
+    const option = Array.from(select.options).find(o => String(o.value) === String(id));
+    if (option) option.selected = checked;
+    renderReportStoreCards();
     generateStoreReport();
 }
 
-function toggleReportStore(checkbox) {
-    const select=$("report-store-select");
-    if (!select) return;
-    const option=Array.from(select.options).find(o=>String(o.value)===String(checkbox.value));
-    if (option) option.selected=checkbox.checked;
-    generateStoreReport();
-}
 
 async function deleteStore(id) {
 
@@ -3378,43 +3381,99 @@ async function deleteStore(id) {
 
 
 function generateStoreReport() {
-    const select=$("report-store-select"), body=$("report-table-body"), historyBody=$("report-history-body");
+    const select = $("report-store-select");
+    const body = $("report-table-body");
+    const historyBody = $("report-history-body");
     if (!select || !body) return;
-    const getItems=sale=>{if(Array.isArray(sale.items))return sale.items;if(typeof sale.items==="string"){try{return JSON.parse(sale.items)||[];}catch(_){return [];}}return [];};
-    const selectedIds=Array.from(select.selectedOptions).map(o=>String(o.value));
-    const selectedSet=new Set(selectedIds);
-    const stores=storeList.filter(s=>selectedSet.has(String(s.id)));
-    const moneyNum=v=>num(v);
-    if(!stores.length){body.innerHTML='<tr><td colspan="6" class="p-4 text-center text-slate-500">Select one or more stores above.</td></tr>';if(historyBody)historyBody.innerHTML='<tr><td colspan="7" class="p-4 text-center text-slate-500">Select one or more stores above.</td></tr>';safeText('report-total-sets',0);safeText('report-total-sales','0.00');safeText('report-total-profit','0.00');return;}
-    const belongs=(sale,id)=>String(sale.store_id ?? '')===String(id)||getItems(sale).some(item=>String(item.store_id ?? sale.store_id ?? '')===String(id));
-    const selectedSales=saleHistory.filter(s=>selectedIds.some(id=>belongs(s,id)));
-    const getCode=item=>{const pid=item?.product_id||item?.product?.id||item?.stock?.product_id;const product=pid?productsList.find(p=>String(p.id)===String(pid)):null;return String(item?.product_code||item?.code||item?.print_code||product?.code||product?.print_code||item?.product?.code||item?.stock?.product?.code||'-');};
-    const getDateRaw=s=>s.created_at||s.sale_date||s.date||s.sold_at||s.updated_at||'';
-    const dateText=raw=>{if(!raw)return '-';const d=new Date(raw);return Number.isNaN(d.getTime())?String(raw):d.toLocaleString('en-GB',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});};
-    let allRows=[];
-    body.innerHTML=stores.map(store=>{
-        const sales=selectedSales.filter(s=>belongs(s,store.id));
-        let sets=0,saleAmount=0,profit=0;const sold={};
-        sales.forEach(s=>{
-            const items=getItems(s).filter(i=>String(i.store_id ?? s.store_id ?? '')===String(store.id));
-            const useItems=items.length?items:getItems(s);
-            const saleSets=useItems.length?useItems.reduce((n,i)=>n+num(i.sets||i.total_sets),0):num(s.total_sets);
-            sets+=saleSets;
-            saleAmount+=num(s.total_sale);profit+=num(s.gross_profit);
-            if(useItems.length){useItems.forEach(i=>{const code=getCode(i);sold[code]=(sold[code]||0)+num(i.sets||i.total_sets);});}
-            else {const code=getCode(s);sold[code]=(sold[code]||0)+num(s.total_sets);}
-            const raw=getDateRaw(s);
-            if(items.length){items.forEach(i=>allRows.push({raw,date:dateText(raw),store:store.name||'-',area:store.area||'-',code:getCode(i),sets:num(i.sets||i.total_sets),pieces:num(i.pieces||i.total_pieces||num(i.sets||i.total_sets)*num(i.pcs_per_set)),sales:num(i.total_sale||i.sale_total||num(i.sale_price_per_set||i.sell_price_per_set||i.sell_price)*num(i.sets||i.total_sets))}));}
-            else if(!getItems(s).length) allRows.push({raw,date:dateText(raw),store:store.name||'-',area:store.area||'-',code:getCode(s),sets:num(s.total_sets),pieces:num(s.total_pcs||s.total_pieces),sales:num(s.total_sale)});
+
+    const getSaleItemsForReport = (sale) => {
+        if (Array.isArray(sale.items)) return sale.items;
+        if (typeof sale.items === "string") {
+            try { return JSON.parse(sale.items) || []; } catch (_) { return []; }
+        }
+        return [];
+    };
+    const selectedIds = Array.from(select.options).filter(option => option.selected).map(option => String(option.value));
+    const selectedIdSet = new Set(selectedIds);
+    const saleBelongsToSelectedStore = sale => {
+        if (sale.store_id != null && selectedIdSet.has(String(sale.store_id))) return true;
+        return getSaleItemsForReport(sale).some(item => item.store_id != null && selectedIdSet.has(String(item.store_id)));
+    };
+    const selectedStores = storeList.filter(store => selectedIdSet.has(String(store.id)));
+
+    if (!selectedStores.length) {
+        body.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500">Select at least one store.</td></tr>`;
+        if (historyBody) historyBody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-500">Select at least one store.</td></tr>`;
+        safeText("report-total-sets", 0);
+        safeText("report-total-sales", "0.00");
+        safeText("report-total-profit", "0.00");
+        return;
+    }
+
+    const selectedSales = saleHistory.filter(saleBelongsToSelectedStore);
+    const totalSets = selectedSales.reduce((sum, sale) => sum + num(sale.total_sets || getSaleItemsForReport(sale).reduce((n, item) => n + num(item.sets || item.total_sets), 0)), 0);
+    const totalSales = selectedSales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
+    const totalProfit = selectedSales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
+
+    const getItemCode = (item) => {
+        const productId = item?.product_id || item?.product?.id || item?.stock?.product_id;
+        const product = productId ? productsList.find(p => String(p.id) === String(productId)) : null;
+        return String(item?.product_code || item?.code || item?.print_code || product?.code || product?.print_code || item?.product?.code || item?.product?.print_code || item?.stock?.product?.code || item?.stock?.product?.print_code || "-");
+    };
+    const getSaleDate = (sale) => {
+        const raw = sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at;
+        if (!raw) return "-";
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    };
+
+    body.innerHTML = selectedStores.map(store => {
+        const sales = selectedSales.filter(sale => String(sale.store_id ?? "") === String(store.id) || getSaleItemsForReport(sale).some(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id)));
+        const sets = sales.reduce((sum, sale) => {
+            const items = getSaleItemsForReport(sale);
+            const itemSets = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id)).reduce((n, item) => n + num(item.sets || item.total_sets), 0);
+            return sum + (items.length ? itemSets : num(sale.total_sets));
+        }, 0);
+        const saleAmount = sales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
+        const profit = sales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
+        const soldSetMap = {};
+        sales.forEach(sale => {
+            const items = getSaleItemsForReport(sale);
+            const storeItems = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id));
+            if (storeItems.length) storeItems.forEach(item => { const code = getItemCode(item); soldSetMap[code] = (soldSetMap[code] || 0) + num(item.sets || item.total_sets); });
+            else if (!items.length) { const code = getItemCode(sale); soldSetMap[code] = (soldSetMap[code] || 0) + num(sale.total_sets); }
         });
-        const soldHtml=Object.keys(sold).length?Object.entries(sold).map(([code,count])=>`<div><strong>${escapeHtml(code)}</strong>: ${count} sets</div>`).join(''):'-';
-        return `<tr><td class="p-3">${escapeHtml(store.name||'-')}</td><td class="p-3">${escapeHtml(store.area||'-')}</td><td class="p-3">${soldHtml}</td><td class="p-3 font-semibold">${sets}</td><td class="p-3">${money(saleAmount)}</td><td class="p-3">${money(profit)}</td></tr>`;
-    }).join('');
-    allRows.sort((a,b)=>new Date(b.raw||0).getTime()-new Date(a.raw||0).getTime());
-    if(historyBody) historyBody.innerHTML=allRows.length?allRows.map(r=>`<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">${escapeHtml(r.store)}</td><td class="p-3">${escapeHtml(r.area)}</td><td class="p-3 font-semibold">${escapeHtml(r.code)}</td><td class="p-3">${r.sets}</td><td class="p-3">${r.pieces}</td><td class="p-3">${money(r.sales)}</td></tr>`).join(''):'<tr><td colspan="7" class="p-4 text-center text-slate-500">No sales history found for the selected store(s).</td></tr>';
-    safeText('report-total-sets',selectedSales.reduce((sum,s)=>sum+num(s.total_sets),0));
-    safeText('report-total-sales',money(selectedSales.reduce((sum,s)=>sum+num(s.total_sale),0)));
-    safeText('report-total-profit',money(selectedSales.reduce((sum,s)=>sum+num(s.gross_profit),0)));
+        const soldSetsHtml = Object.keys(soldSetMap).length ? Object.entries(soldSetMap).map(([code, count]) => `<div><strong>${escapeHtml(code)}</strong>: ${count} set</div>`).join("") : "-";
+        return `<tr><td class="p-3">${escapeHtml(store.name)}</td><td class="p-3">${escapeHtml(store.area || "-")}</td><td class="p-3">${soldSetsHtml}</td><td class="p-3 font-semibold">${sets}</td><td class="p-3">${money(saleAmount)}</td><td class="p-3">${money(profit)}</td></tr>`;
+    }).join("");
+
+    if (historyBody) {
+        const rows = [];
+        selectedSales.forEach(sale => {
+            const items = getSaleItemsForReport(sale);
+            const date = getSaleDate(sale);
+            const rawDate = sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at || "";
+            const matchingItems = items.filter(item => selectedIdSet.has(String(item.store_id ?? sale.store_id ?? "")));
+            if (matchingItems.length) {
+                matchingItems.forEach(item => {
+                    const storeId = item.store_id ?? sale.store_id;
+                    const store = storeList.find(s => String(s.id) === String(storeId));
+                    const sets = num(item.sets || item.total_sets);
+                    const pieces = num(item.pieces || item.total_pieces || (sets * num(item.pcs_per_set)));
+                    const saleValue = num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * sets));
+                    rows.push({ dateValue: rawDate, date, store: store?.name || sale.store_name || "-", area: store?.area || "-", code: getItemCode(item), sets, pieces, saleValue });
+                });
+            } else if (!items.length && selectedIdSet.has(String(sale.store_id))) {
+                const store = storeList.find(s => String(s.id) === String(sale.store_id));
+                rows.push({ dateValue: rawDate, date, store: store?.name || sale.store_name || "-", area: store?.area || "-", code: getItemCode(sale), sets: num(sale.total_sets), pieces: num(sale.total_pcs || sale.total_pieces), saleValue: num(sale.total_sale) });
+            }
+        });
+        rows.sort((a, b) => new Date(b.dateValue || 0) - new Date(a.dateValue || 0));
+        historyBody.innerHTML = rows.length ? rows.map(row => `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(row.date)}</td><td class="p-3">${escapeHtml(row.store)}</td><td class="p-3">${escapeHtml(row.area)}</td><td class="p-3 font-semibold">${escapeHtml(row.code)}</td><td class="p-3">${row.sets}</td><td class="p-3">${row.pieces}</td><td class="p-3">${money(row.saleValue)}</td></tr>`).join("") : `<tr><td colspan="7" class="p-4 text-center text-slate-500">No sales history found for the selected store(s).</td></tr>`;
+    }
+    safeText("report-total-sets", totalSets);
+    safeText("report-total-sales", money(totalSales));
+    safeText("report-total-profit", money(totalProfit));
 }
 
 /* =========================================================
@@ -3439,13 +3498,11 @@ function updateDashboard() {
             0
         );
 
-    const totalSetsSold =
-        saleHistory.reduce(
-            (sum, s) =>
-                sum +
-                num(s.total_sets),
-            0
-        );
+    const totalSetsSold = saleHistory.reduce((sum, s) => sum + (num(s.total_sets) || getSaleItems(s).reduce((n,item) => n + num(item.sets), 0)), 0);
+    safeText("dash-product-count", productsList.length);
+    safeText("dash-production-count", productionHistory.length);
+    safeText("dash-store-count", storeList.length);
+    safeText("dash-stock-sets", productHouseStock.reduce((sum,s) => sum + num(s.sets), 0));
 
     const totalStock =
         productHouseStock.reduce(
@@ -3579,8 +3636,7 @@ function updateDashboard() {
 
     if (recent) {
 
-        const latest =
-            saleHistory.slice(0, 5);
+        const latest = [...saleHistory].sort((a,b) => new Date(b.created_at || b.date || 0).getTime() - new Date(a.created_at || a.date || 0).getTime()).slice(0, 5);
 
         if (!latest.length) {
 
