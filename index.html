@@ -1388,10 +1388,6 @@
      REPORT
 ========================================================= -->
 
-<!-- =========================================================
-     REPORT
-========================================================= -->
-
 <section id="page-report" class="page-content">
 
     <div class="mb-6">
@@ -1412,16 +1408,14 @@
         <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div>
                 <label class="form-label mb-1">Select Store</label>
-                <p class="muted text-xs">Select a store to view only its summary and sales history.</p>
+                <p class="muted text-xs">Choose one or more stores to view their sales report.</p>
             </div>
             <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">Store Report</span>
         </div>
 
-        <div id="report-store-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3" aria-label="Scrollable store selection"></div>
-        <div id="report-store-history-panels" class="space-y-4 mt-4" aria-live="polite"><div class="card muted">Click a store above to show its sales history here.</div></div>
         <select
             id="report-store-select"
-            class="form-input w-full min-h-[48px] hidden"
+            class="form-input w-full min-h-[48px]"
             onchange="generateStoreReport()"
             multiple
             size="5">
@@ -1461,11 +1455,10 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b bg-slate-50 text-left">
-                        <th class="p-3">Date / Time</th>
-                        <th class="p-3">Sale ID</th>
+                        <th class="p-3">Date</th>
                         <th class="p-3">Store</th>
                         <th class="p-3">Area</th>
-                        <th class="p-3">Product Code(s)</th>
+                        <th class="p-3">Product Code</th>
                         <th class="p-3">Sets</th>
                         <th class="p-3">Pieces</th>
                         <th class="p-3">Sales</th>
@@ -1477,11 +1470,37 @@
 
     </div>
 
+    <div class="card">
+
+        <div class="table-wrapper">
+
+            <table class="w-full text-sm">
+
+                <thead>
+                    <tr class="border-b bg-slate-50 text-left">
+                        <th class="p-3">Store</th>
+                        <th class="p-3">Area</th>
+                        <th class="p-3">Sold Sets</th>
+                        <th class="p-3">Total Sets</th>
+                        <th class="p-3">Sales</th>
+                        <th class="p-3">Profit</th>
+                    </tr>
+                </thead>
+
+                <tbody id="report-table-body"></tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
 </section>
 
 
     </div>
 </main>
+
 
 
 <!-- =========================================================
