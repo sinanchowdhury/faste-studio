@@ -3451,6 +3451,7 @@ function toggleReportStore(id, checked) {
     Array.from(select.options).forEach(option => { option.selected = checked && String(option.value) === String(id); });
     renderReportStoreCards();
     generateStoreReport();
+    renderSelectedStoreHistoryPanels();
 }
 
 
@@ -3550,6 +3551,7 @@ function generateStoreReport() {
         safeText("report-total-sets", "0");
         safeText("report-total-sales", "0.00");
         safeText("report-total-profit", "0.00");
+        renderSelectedStoreHistoryPanels();
         return;
     }
 
@@ -3609,6 +3611,7 @@ function generateStoreReport() {
     safeText("report-total-sets", storeMetrics.reduce((sum, m) => sum + m.sets, 0));
     safeText("report-total-sales", money(storeMetrics.reduce((sum, m) => sum + m.salesAmount, 0)));
     safeText("report-total-profit", money(storeMetrics.reduce((sum, m) => sum + m.profit, 0)));
+    renderSelectedStoreHistoryPanels();
 }
 
 /* =========================================================
@@ -4190,6 +4193,9 @@ window.deleteStore =
 
 window.generateStoreReport =
     generateStoreReport;
+
+window.toggleReportStore =
+    toggleReportStore;
 
 window.setDestroyStock =
     setDestroyStock;
