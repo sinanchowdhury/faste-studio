@@ -3330,9 +3330,40 @@ function renderReportStoreCards() {
     const cards = $("report-store-cards"), select = $("report-store-select");
     if (!cards || !select) return;
     const selected = new Set(Array.from(select.selectedOptions).map(o => String(o.value)));
+    const itemsFor = sale => {
+        if (Array.isArray(sale.items)) return sale.items;
+        if (typeof sale.items === "string") { try { return JSON.parse(sale.items) || []; } catch (_) {} }
+        return [];
+    };
+    const saleDate = sale => {
+        const raw = sale.created_at || sale.sale_date || sale.date || sale.sold_at;
+        if (!raw) return "-";
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString("en-GB", {day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+    };
     cards.innerHTML = storeList.length ? storeList.map(store => {
         const id = String(store.id), checked = selected.has(id);
-        return `<label class="card cursor-pointer hover:border-slate-500 transition-colors ${checked ? 'border-slate-900 ring-1 ring-slate-900' : ''}"><div class="flex items-start gap-3"><input type="checkbox" class="mt-1" ${checked ? 'checked' : ''} onchange="toggleReportStore(${JSON.stringify(id)}, this.checked)"><div><div class="font-bold">${escapeHtml(store.name || 'Unnamed shop')}</div><div class="muted mt-1">${escapeHtml(store.area || 'Area not set')}</div><div class="text-xs text-slate-500 mt-2">${escapeHtml(store.owner || '')}${store.phone ? ' · ' + escapeHtml(store.phone) : ''}</div></div></div></label>`;
+        const sales = saleHistory.filter(sale => String(sale.store_id ?? "") === id ||
+            itemsFor(sale).some(item => String(item.store_id ?? sale.store_id ?? "") === id));
+        const history = sales.flatMap(sale => {
+            const its = itemsFor(sale);
+            const matching = its.filter(item => String(item.store_id ?? sale.store_id ?? "") === id);
+            const rows = matching.length ? matching : (!its.length && String(sale.store_id ?? "") === id ? [sale] : []);
+            return rows.map(item => {
+                const pid = item.product_id || item.stock?.product_id;
+                const product = productsList.find(p => String(p.id) === String(pid));
+                const code = item.product_code || item.code || item.print_code || product?.code || "-";
+                const sets = num(item.sets || item.total_sets || sale.total_sets);
+                const value = num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * sets) || sale.total_sale);
+                return `<div class="flex justify-between gap-2 text-xs border-t border-slate-100 py-2"><span><b>${escapeHtml(code)}</b><span class="text-slate-500"> · ${escapeHtml(saleDate(sale))}</span></span><span class="font-semibold whitespace-nowrap">${sets} set · ৳${money(value)}</span></div>`;
+            });
+        }).join("");
+        const totalSets = sales.reduce((sum, sale) => sum + num(sale.total_sets || itemsFor(sale).reduce((n, item) => n + num(item.sets), 0)), 0);
+        return `<article class="rounded-xl border ${checked ? 'border-slate-900 ring-2 ring-slate-200' : 'border-slate-200'} bg-white p-4 shadow-sm hover:shadow-md transition-shadow">
+          <label class="flex items-start gap-3 cursor-pointer"><input type="checkbox" class="mt-1 h-4 w-4" ${checked ? 'checked' : ''} onchange="toggleReportStore(${JSON.stringify(id)}, this.checked)"><div class="min-w-0 flex-1"><div class="font-bold text-slate-900">${escapeHtml(store.name || 'Unnamed shop')}</div><div class="text-sm text-slate-500 mt-1">${escapeHtml(store.area || 'Area not set')}</div><div class="text-xs text-slate-500 mt-1">${escapeHtml(store.owner || '')}${store.phone ? ' · ' + escapeHtml(store.phone) : ''}</div></div></label>
+          <div class="grid grid-cols-2 gap-2 mt-3"><div class="rounded-lg bg-slate-50 p-3"><div class="text-xs text-slate-500">Sales records</div><div class="text-lg font-bold">${sales.length}</div></div><div class="rounded-lg bg-slate-50 p-3"><div class="text-xs text-slate-500">Sets sold</div><div class="text-lg font-bold">${totalSets}</div></div></div>
+          <div class="mt-3"><div class="text-xs uppercase tracking-wide font-bold text-slate-500 mb-1">Sales history</div><div class="max-h-36 overflow-y-auto pr-1">${history || '<div class="text-xs text-slate-400 py-2">No sales history for this store yet.</div>'}</div></div>
+        </article>`;
     }).join('') : '<div class="empty-state">No stores added yet.</div>';
 }
 
@@ -3434,7 +3465,12 @@ function generateStoreReport() {
             const itemSets = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id)).reduce((n, item) => n + num(item.sets || item.total_sets), 0);
             return sum + (items.length ? itemSets : num(sale.total_sets));
         }, 0);
-        const saleAmount = sales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
+        const saleAmount = sales.reduce((sum, sale) => {
+            const items = getSaleItemsForReport(sale);
+            const matching = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id));
+            if (matching.length) return sum + matching.reduce((n, item) => n + num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * num(item.sets || item.total_sets))), 0);
+            return sum + num(sale.total_sale);
+        }, 0);
         const profit = sales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
         const soldSetMap = {};
         sales.forEach(sale => {
@@ -3474,6 +3510,8 @@ function generateStoreReport() {
     safeText("report-total-sets", totalSets);
     safeText("report-total-sales", money(totalSales));
     safeText("report-total-profit", money(totalProfit));
+    // Keep each store card's embedded history and totals in sync with the latest data.
+    renderReportStoreCards();
 }
 
 /* =========================================================
