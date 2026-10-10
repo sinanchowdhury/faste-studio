@@ -97,16 +97,46 @@
             box-shadow: 0 2px 8px rgba(15, 23, 42, .04);
         }
 
-        
-        .sale-item-row { border:1px solid #d7deea; border-radius:14px; background:#fff; padding:16px; box-shadow:0 3px 10px rgba(15,23,42,.05); }
-        .sale-item-fields { display:grid; grid-template-columns:minmax(190px,2fr) minmax(100px,.7fr) minmax(140px,1fr) auto; gap:12px; align-items:end; }
-        .sale-line-summary { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:12px; }
-        .sale-line-summary>div { background:#f8fafc; border:1px solid #e8edf4; border-radius:10px; padding:10px 12px; min-width:0; }
-        #report-store-cards { max-height:340px; overflow-y:auto; overscroll-behavior:contain; padding:8px; border:1px solid #e2e8f0; border-radius:12px; background:#f8fafc; }
-        .report-store-card { display:flex; gap:10px; align-items:flex-start; padding:12px; border:1px solid #dbe3ee; border-radius:12px; background:#fff; cursor:pointer; }
-        .report-store-card:has(input:checked) { border-color:#2563eb; background:#eff6ff; box-shadow:0 0 0 1px #2563eb inset; }
-        .report-store-card input { margin-top:3px; }
-        @media(max-width:760px) { .sale-item-fields { grid-template-columns:1fr 1fr; } .sale-line-summary { grid-template-columns:1fr 1fr; } }
+
+        .sale-item-row {
+            border: 1px solid #cbd5e1;
+            border-radius: 14px;
+            background: #ffffff;
+            padding: 16px;
+            box-shadow: 0 2px 7px rgba(15, 23, 42, .05);
+        }
+        .sale-item-row .sale-item-fields {
+            display: grid;
+            grid-template-columns: minmax(180px, 2fr) minmax(90px, .7fr) minmax(130px, 1fr) auto;
+            gap: 10px;
+            align-items: end;
+        }
+        .sale-item-row .sale-line-summary {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 12px;
+        }
+        .sale-item-row .sale-line-summary > div {
+            border-radius: 9px;
+            background: #f8fafc;
+            padding: 10px 12px;
+            min-width: 0;
+        }
+        #report-store-cards {
+            max-height: 340px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            padding: 4px 8px 4px 4px;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background: #f8fafc;
+        }
+        #report-store-cards label { min-width: 0; }
+        @media (max-width: 760px) {
+            .sale-item-row .sale-item-fields { grid-template-columns: 1fr 1fr; }
+            .sale-item-row .sale-line-summary { grid-template-columns: 1fr 1fr; }
+        }
 
         .section-title {
             font-size: 22px;
@@ -407,6 +437,13 @@
     </div>
 
 
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="card"><p class="muted">Product Types</p><div id="dash-product-count" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">Production Records</p><div id="dash-production-count" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">Stores</p><div id="dash-store-count" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">Stock Sets</p><div id="dash-stock-sets" class="stat-value">0</div></div>
+    </div>
+
     <div class="card">
 
         <div class="flex justify-between items-center mb-4">
@@ -467,16 +504,11 @@
     </div>
 
 
-    <div
-        id="product-type-breakdown-cards"
-        class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-    </div>
+    <div id="product-type-breakdown-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"></div>
+    <div id="product-card-grid" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4 mb-6"></div>
 
-
-    <div class="card">
-
+    <div class="card hidden">
         <div class="table-wrapper">
-
             <table
                 id="product-list-table"
                 class="w-full text-sm">
@@ -923,7 +955,7 @@
             </div>
 
 
-            <div id="sale-top-income-summary" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5">
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5" id="sale-top-income-summary">
                 <div class="card bg-slate-50"><p class="muted">Seller Price / Set</p><div id="sale-top-seller-rate" class="stat-value">৳0</div></div>
                 <div class="card bg-slate-50"><p class="muted">Manager Income / Set</p><div id="sale-top-manager-rate" class="stat-value">৳0</div></div>
                 <div class="card bg-slate-50"><p class="muted">Total Seller Income</p><div id="sale-top-seller-total" class="stat-value">৳0</div></div>
@@ -1301,6 +1333,8 @@
     </div>
 
 
+    <div id="store-area-summary" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6"></div>
+
     <div class="card mb-6">
 
         <div class="flex flex-wrap gap-4 items-center">
@@ -1384,8 +1418,14 @@
             <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">Store Report</span>
         </div>
 
-        <div id="report-store-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" aria-label="Select stores for report"></div>
-        <select id="report-store-select" class="hidden" multiple aria-hidden="true" tabindex="-1"></select>
+        <div id="report-store-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3" aria-label="Scrollable store selection"></div>
+        <select
+            id="report-store-select"
+            class="form-input w-full min-h-[48px] hidden"
+            onchange="generateStoreReport()"
+            multiple
+            size="5">
+        </select>
 
     </div>
 
@@ -1661,6 +1701,12 @@
                     <input id="p-pc-size" class="form-input" readonly>
                 </div>
 
+            </div>
+
+            <div class="mt-5 border-t pt-4">
+                <label class="form-label">Add multiple products (optional)</label>
+                <p class="muted mb-2">One product per line: Code, Type, Full Size (number), Pieces per Set. Example: A01,Board,200,10</p>
+                <textarea id="bulk-products-input" class="form-input" rows="3" placeholder="A01,Board,200,10&#10;A02,Tape,100,5"></textarea>
             </div>
 
 
