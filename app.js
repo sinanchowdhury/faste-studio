@@ -582,6 +582,7 @@ function showPage(pageId) {
         }
 
         if (pageId === "report") {
+            renderReportStoreCards();
             generateStoreReport();
         }
 
@@ -3375,46 +3376,83 @@ function getStoreSaleAmountForCards(sale, storeId) {
 }
 
 function renderSelectedStoreHistoryPanels() {
-    const panel = $("report-store-history-panels"), select = $("report-store-select");
+    const panel = $("report-store-history-panels");
+    const select = $("report-store-select");
     if (!panel || !select) return;
-    const selectedIds = Array.from(select.selectedOptions).map(o => String(o.value));
+
+    const selectedIds = Array.from(select.options)
+        .filter(option => option.selected)
+        .map(option => String(option.value));
+
     if (!selectedIds.length) {
         panel.innerHTML = '<div class="card muted">Click a store above to show its sales history here.</div>';
         return;
     }
-    const getCode = item => {
-        const productId = item?.product_id || item?.product?.id || item?.stock?.product_id;
-        const product = productId ? productsList.find(p => String(p.id) === String(productId)) : null;
-        return String(item?.product_code || item?.code || item?.print_code || product?.code || product?.print_code || item?.product?.code || item?.stock?.print_code || '-');
+
+    const itemsFor = sale => {
+        if (Array.isArray(sale?.items)) return sale.items;
+        if (typeof sale?.items === "string") {
+            try { return JSON.parse(sale.items) || []; } catch (_) { return []; }
+        }
+        return [];
     };
-    const getDate = sale => {
-        const raw = sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at;
-        if (!raw) return '-';
+    const dateFor = sale => {
+        const raw = sale.created_at || sale.sold_at || sale.sale_date || sale.date || sale.updated_at;
+        if (!raw) return "-";
         const d = new Date(raw);
-        return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
+        return Number.isNaN(d.getTime()) ? String(raw) :
+            d.toLocaleString("en-GB", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:true });
     };
+    const codeFor = item => {
+        const pid = item?.product_id || item?.product?.id || item?.stock?.product_id;
+        const product = pid ? productsList.find(p => String(p.id) === String(pid)) : null;
+        return String(item?.product_code || item?.code || item?.print_code ||
+            product?.code || product?.print_code || item?.product?.code || item?.stock?.print_code || "-");
+    };
+
     panel.innerHTML = selectedIds.map(id => {
         const store = storeList.find(s => String(s.id) === id);
-        const sales = saleHistory.filter(sale => String(sale.store_id ?? '') === id || getSaleItemsForReportCards(sale).some(item => String(item.store_id ?? sale.store_id ?? '') === id))
-            .sort((a,b) => new Date(b.created_at || b.sale_date || b.date || b.sold_at || 0) - new Date(a.created_at || a.sale_date || a.date || a.sold_at || 0));
-        const saleRows = [];
+        // Filter by store, but preserve every saved sales record. Never combine different sale IDs.
+        const sales = saleHistory.filter(sale => {
+            if (String(sale.store_id ?? "") === id) return true;
+            return itemsFor(sale).some(item => String(item.store_id ?? sale.store_id ?? "") === id);
+        }).sort((a, b) => {
+            const da = new Date(a.created_at || a.sold_at || a.sale_date || a.date || 0).getTime() || 0;
+            const db = new Date(b.created_at || b.sold_at || b.sale_date || b.date || 0).getTime() || 0;
+            return db - da;
+        });
+
+        const rows = [];
         sales.forEach(sale => {
-            const items = getSaleItemsForReportCards(sale);
-            const matched = items.filter(item => String(item.store_id ?? sale.store_id ?? '') === id);
+            const items = itemsFor(sale);
+            const matched = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === id);
+            // One row per product within a sale; same product sold on different occasions stays separate by Sale ID.
             if (matched.length) {
                 matched.forEach(item => {
-                    const sets = num(item.sets || item.total_sets);
-                    const pcs = sets * num(item.pcs_per_set || item.pieces_per_set);
-                    const amount = num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * sets));
-                    saleRows.push({date:getDate(sale), id:sale.id, code:getCode(item), sets, pcs, amount});
+                    const sets = num(item.sets ?? item.total_sets);
+                    const pcsPerSet = num(item.pcs_per_set ?? item.pieces_per_set);
+                    const amount = num(item.total_sale || item.sale_total ||
+                        (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * sets));
+                    rows.push({ date: dateFor(sale), saleId: sale.id, code: codeFor(item), sets,
+                        pcs: num(item.pieces || item.total_pieces) || sets * pcsPerSet, amount });
                 });
-            } else if (!items.length) {
-                saleRows.push({date:getDate(sale), id:sale.id, code:getCode(sale), sets:num(sale.total_sets), pcs:num(sale.total_pcs || sale.total_pieces), amount:num(sale.total_sale)});
+            } else if (!items.length && String(sale.store_id ?? "") === id) {
+                rows.push({ date: dateFor(sale), saleId: sale.id, code: codeFor(sale),
+                    sets: num(sale.total_sets), pcs: num(sale.total_pcs || sale.total_pieces), amount: num(sale.total_sale) });
             }
         });
-        return `<section class="card report-store-history-card"><div class="flex flex-wrap items-center justify-between gap-2 mb-3"><div><h3 class="font-bold text-lg">${escapeHtml(store?.name || 'Store')}</h3><p class="muted">${escapeHtml(store?.area || 'Area not set')} · ${sales.length} sale${sales.length === 1 ? '' : 's'}</p></div><span class="report-store-check">${saleRows.length} history row${saleRows.length === 1 ? '' : 's'}</span></div>
-        <div class="table-wrapper report-history-scroll"><table class="w-full text-sm"><thead><tr class="border-b bg-slate-50 text-left"><th class="p-3">Date / Time</th><th class="p-3">Sale ID</th><th class="p-3">Product Code</th><th class="p-3">Sets</th><th class="p-3">Pieces</th><th class="p-3">Sales Amount</th></tr></thead><tbody>${saleRows.length ? saleRows.map(r => `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">#${escapeHtml(r.id)}</td><td class="p-3 font-semibold">${escapeHtml(r.code)}</td><td class="p-3">${r.sets}</td><td class="p-3">${Math.round(r.pcs)}</td><td class="p-3">৳${money(r.amount)}</td></tr>`).join('') : '<tr><td colspan="6" class="p-4 text-center muted">No sales history found for this store.</td></tr>'}</tbody></table></div></section>`;
-    }).join('');
+
+        return `<section class="card report-store-history-card">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div><h3 class="font-bold text-lg">${escapeHtml(store?.name || "Store")}</h3>
+                <p class="muted">${escapeHtml(store?.area || "Area not set")} · ${sales.length} separate sale record${sales.length === 1 ? "" : "s"}</p></div>
+                <span class="report-store-check">${rows.length} product row${rows.length === 1 ? "" : "s"}</span>
+            </div>
+            <div class="table-wrapper report-history-scroll"><table class="w-full text-sm">
+                <thead><tr class="border-b bg-slate-50 text-left"><th class="p-3">Date / Time</th><th class="p-3">Sale ID</th><th class="p-3">Product Code</th><th class="p-3">Sets</th><th class="p-3">Pieces</th><th class="p-3">Sales Amount</th></tr></thead>
+                <tbody>${rows.length ? rows.map(r => `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">#${escapeHtml(r.saleId)}</td><td class="p-3 font-semibold">${escapeHtml(r.code)}</td><td class="p-3">${r.sets}</td><td class="p-3">${Math.round(r.pcs)}</td><td class="p-3">৳${money(r.amount)}</td></tr>`).join("") : '<tr><td colspan="6" class="p-4 text-center muted">No sales history found for this store.</td></tr>'}</tbody>
+            </table></div></section>`;
+    }).join("");
 }
 
 function toggleReportStore(id, checked) {
