@@ -124,9 +124,8 @@
             min-width: 0;
         }
         #report-store-cards {
-            max-height: 440px;
+            max-height: 340px;
             overflow-y: auto;
-            scrollbar-gutter: stable;
             overscroll-behavior: contain;
             padding: 4px 8px 4px 4px;
             border: 1px solid #e2e8f0;
@@ -134,9 +133,6 @@
             background: #f8fafc;
         }
         #report-store-cards label { min-width: 0; }
-        #report-store-cards article { min-width: 0; }
-        #report-store-cards::-webkit-scrollbar { width: 10px; }
-        #report-store-cards::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 999px; border: 2px solid #f8fafc; }
         @media (max-width: 760px) {
             .sale-item-row .sale-item-fields { grid-template-columns: 1fr 1fr; }
             .sale-item-row .sale-line-summary { grid-template-columns: 1fr 1fr; }
@@ -900,13 +896,6 @@
     </div>
 
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4" id="sale-top-income-summary">
-        <div class="card border-l-4 border-l-sky-600"><p class="muted">Seller Profit / Set</p><div id="sale-top-seller-rate" class="stat-value">৳0.00</div></div>
-        <div class="card border-l-4 border-l-violet-600"><p class="muted">Manager Profit / Set</p><div id="sale-top-manager-rate" class="stat-value">৳0.00</div></div>
-        <div class="card border-l-4 border-l-emerald-600"><p class="muted">Total Seller Profit</p><div id="sale-top-seller-total" class="stat-value">৳0.00</div></div>
-        <div class="card border-l-4 border-l-amber-600"><p class="muted">Total Manager Profit</p><div id="sale-top-manager-total" class="stat-value">৳0.00</div></div>
-    </div>
-
     <div class="card mb-6">
 
         <form id="sale-form">
@@ -949,24 +938,16 @@
                     </select>
                 </div>
 
-                <div>
-                    <div class="form-label">Profit Distribution</div>
-                    <div class="grid grid-cols-2 gap-2 mt-2">
-                        <div>
-                            <label class="muted text-xs">Seller Profit / Set (৳)</label>
-                            <input id="sale-seller-per-set" type="number" min="0" step="0.01" value="0" class="form-input" placeholder="Seller / set" oninput="calcSaleProfit()">
-                        </div>
-                        <div>
-                            <label class="muted text-xs">Manager Profit / Set (৳)</label>
-                            <input id="sale-manager-per-set" type="number" min="0" step="0.01" value="0" class="form-input" placeholder="Manager / set" oninput="calcSaleProfit()">
-                        </div>
-                    </div>
-                </div>
 
             </div>
 
 
-
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5" id="sale-top-income-summary">
+                <div class="card bg-slate-50"><p class="muted">Seller Income / Set (sum)</p><div id="sale-top-seller-rate" class="stat-value">৳0</div></div>
+                <div class="card bg-slate-50"><p class="muted">Manager Income / Set (sum)</p><div id="sale-top-manager-rate" class="stat-value">৳0</div></div>
+                <div class="card bg-slate-50"><p class="muted">Total Seller Income</p><div id="sale-top-seller-total" class="stat-value">৳0</div></div>
+                <div class="card bg-slate-50"><p class="muted">Total Manager Income</p><div id="sale-top-manager-total" class="stat-value">৳0</div></div>
+            </div>
 
             <div class="mb-5">
 
@@ -1403,7 +1384,9 @@
 
     <div class="mb-6">
 
-        <h2 class="section-title">Store Reports</h2>
+        <h2 class="section-title">
+            Store Report
+        </h2>
 
         <p class="muted">
             Analyze sales and profit by store.
@@ -1412,7 +1395,7 @@
     </div>
 
 
-    <div class="card mb-6 p-5 border-t-4 border-t-slate-800">
+    <div class="card mb-6 p-5">
 
         <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div>
@@ -1465,10 +1448,11 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b bg-slate-50 text-left">
-                        <th class="p-3">Date</th>
+                        <th class="p-3">Date / Time</th>
+                        <th class="p-3">Sale ID</th>
                         <th class="p-3">Store</th>
                         <th class="p-3">Area</th>
-                        <th class="p-3">Product Code</th>
+                        <th class="p-3">Product Code(s)</th>
                         <th class="p-3">Sets</th>
                         <th class="p-3">Pieces</th>
                         <th class="p-3">Sales</th>
