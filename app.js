@@ -3505,106 +3505,120 @@ function generateStoreReport() {
     const historyBody = $("report-history-body");
     if (!select || !body) return;
 
-    const getSaleItemsForReport = (sale) => {
-        if (Array.isArray(sale.items)) return sale.items;
-        if (typeof sale.items === "string") {
-            try { return JSON.parse(sale.items) || []; } catch (_) { return []; }
-        }
+    const itemsFor = sale => {
+        if (Array.isArray(sale?.items)) return sale.items;
+        if (typeof sale?.items === "string") { try { const parsed = JSON.parse(sale.items); return Array.isArray(parsed) ? parsed : []; } catch (_) { return []; } }
         return [];
     };
-    const selectedIds = Array.from(select.options).filter(option => option.selected).map(option => String(option.value));
-    const selectedIdSet = new Set(selectedIds);
-    const saleBelongsToSelectedStore = sale => {
-        if (sale.store_id != null && selectedIdSet.has(String(sale.store_id))) return true;
-        return getSaleItemsForReport(sale).some(item => item.store_id != null && selectedIdSet.has(String(item.store_id)));
+    const selectedIds = Array.from(select.options).filter(o => o.selected).map(o => String(o.value));
+    const selectedSet = new Set(selectedIds);
+    const selectedStores = storeList.filter(s => selectedSet.has(String(s.id)));
+    const codeFor = item => {
+        const pid = item?.product_id || item?.product?.id || item?.stock?.product_id;
+        const p = pid == null ? null : productsList.find(x => String(x.id) === String(pid));
+        return String(item?.product_code || item?.code || item?.print_code || item?.product_code_snapshot ||
+            item?.product?.code || item?.stock?.print_code || p?.code || p?.print_code || "-");
     };
-    const selectedStores = storeList.filter(store => selectedIdSet.has(String(store.id)));
+    const dateValue = sale => sale.created_at || sale.sold_at || sale.sale_date || sale.date || sale.updated_at || "";
+    const dateLabel = sale => {
+        const raw = dateValue(sale);
+        if (!raw) return "-";
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString("en-GB", {
+            day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:true
+        });
+    };
+    const itemStoreId = (item, sale) => String(item?.store_id ?? sale?.store_id ?? "");
+    const itemSets = item => num(item?.sets ?? item?.total_sets ?? item?.quantity);
+    const itemAmount = item => {
+        const explicit = item?.total_sale ?? item?.sale_total ?? item?.total_amount ?? item?.amount;
+        if (explicit != null && explicit !== "") return num(explicit);
+        return num(item?.sale_price_per_set ?? item?.sell_price_per_set ?? item?.sell_price ?? item?.price_per_set) * itemSets(item);
+    };
+    const saleRowsForStore = (sale, id) => {
+        const items = itemsFor(sale);
+        const matched = items.filter(item => itemStoreId(item, sale) === String(id));
+        if (matched.length) return matched;
+        if (!items.length && String(sale?.store_id ?? "") === String(id)) return [sale];
+        return [];
+    };
+    const saleAmountForStore = (sale, id) => {
+        const matched = saleRowsForStore(sale, id);
+        if (!matched.length) return 0;
+        if (matched[0] === sale) return num(sale.total_sale ?? sale.sale_amount ?? sale.total_amount);
+        const itemTotal = matched.reduce((sum, item) => sum + itemAmount(item), 0);
+        // For older records without item-level amounts, only attribute the sale total
+        // when the sale belongs to a single store; avoid counting it once per store.
+        if (itemTotal > 0) return itemTotal;
+        const distinctStores = new Set(itemsFor(sale).map(item => itemStoreId(item, sale)));
+        return distinctStores.size <= 1 ? num(sale.total_sale ?? sale.sale_amount ?? sale.total_amount) : 0;
+    };
 
     if (!selectedStores.length) {
-        body.innerHTML = `<tr><td colspan="6" class="p-4 text-center text-slate-500">Select at least one store.</td></tr>`;
-        if (historyBody) historyBody.innerHTML = `<tr><td colspan="7" class="p-4 text-center text-slate-500">Select at least one store.</td></tr>`;
-        safeText("report-total-sets", 0);
+        body.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">Select a store above to view its report.</td></tr>';
+        if (historyBody) historyBody.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-slate-500">Select a store above to view its sales history.</td></tr>';
+        safeText("report-total-sets", "0");
         safeText("report-total-sales", "0.00");
         safeText("report-total-profit", "0.00");
         return;
     }
 
-    const selectedSales = saleHistory.filter(saleBelongsToSelectedStore);
-    const totalSets = selectedSales.reduce((sum, sale) => sum + num(sale.total_sets || getSaleItemsForReport(sale).reduce((n, item) => n + num(item.sets || item.total_sets), 0)), 0);
-    const totalSales = selectedSales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
-    const totalProfit = selectedSales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
-
-    const getItemCode = (item) => {
-        const productId = item?.product_id || item?.product?.id || item?.stock?.product_id;
-        const product = productId ? productsList.find(p => String(p.id) === String(productId)) : null;
-        return String(item?.product_code || item?.code || item?.print_code || product?.code || product?.print_code || item?.product?.code || item?.product?.print_code || item?.stock?.product?.code || item?.stock?.product?.print_code || "-");
-    };
-    const getSaleDate = (sale) => {
-        const raw = sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at;
-        if (!raw) return "-";
-        const d = new Date(raw);
-        return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", hour12: true });
-    };
-
-    body.innerHTML = selectedStores.map(store => {
-        const sales = selectedSales.filter(sale => String(sale.store_id ?? "") === String(store.id) || getSaleItemsForReport(sale).some(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id)));
-        const sets = sales.reduce((sum, sale) => {
-            const items = getSaleItemsForReport(sale);
-            const itemSets = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id)).reduce((n, item) => n + num(item.sets || item.total_sets), 0);
-            return sum + (items.length ? itemSets : num(sale.total_sets));
-        }, 0);
-        const saleAmount = sales.reduce((sum, sale) => sum + num(sale.total_sale), 0);
-        const profit = sales.reduce((sum, sale) => sum + num(sale.gross_profit), 0);
-        const soldSetMap = {};
+    const storeMetrics = selectedStores.map(store => {
+        const id = String(store.id);
+        const sales = saleHistory.filter(sale => saleRowsForStore(sale, id).length > 0);
+        let sets = 0, salesAmount = 0, profit = 0;
+        const soldByCode = new Map();
         sales.forEach(sale => {
-            const items = getSaleItemsForReport(sale);
-            const storeItems = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === String(store.id));
-            if (storeItems.length) storeItems.forEach(item => { const code = getItemCode(item); soldSetMap[code] = (soldSetMap[code] || 0) + num(item.sets || item.total_sets); });
-            else if (!items.length) { const code = getItemCode(sale); soldSetMap[code] = (soldSetMap[code] || 0) + num(sale.total_sets); }
+            const rows = saleRowsForStore(sale, id);
+            rows.forEach(item => {
+                sets += itemSets(item);
+                const code = codeFor(item);
+                soldByCode.set(code, (soldByCode.get(code) || 0) + itemSets(item));
+            });
+            salesAmount += saleAmountForStore(sale, id);
+            const items = itemsFor(sale);
+            const storeProfit = rows.length && rows[0] !== sale
+                ? rows.reduce((sum, item) => sum + num(item.gross_profit ?? item.profit), 0)
+                : num(sale.gross_profit ?? sale.profit);
+            profit += storeProfit;
         });
-        const soldSetsHtml = Object.keys(soldSetMap).length ? Object.entries(soldSetMap).map(([code, count]) => `<div><strong>${escapeHtml(code)}</strong>: ${count} set</div>`).join("") : "-";
-        return `<tr><td class="p-3">${escapeHtml(store.name)}</td><td class="p-3">${escapeHtml(store.area || "-")}</td><td class="p-3">${soldSetsHtml}</td><td class="p-3 font-semibold">${sets}</td><td class="p-3">${money(saleAmount)}</td><td class="p-3">${money(profit)}</td></tr>`;
+        return { store, sales, sets, salesAmount, profit, soldByCode };
+    });
+
+    body.innerHTML = storeMetrics.map(m => {
+        const soldSetsHtml = [...m.soldByCode.entries()]
+            .map(([code, count]) => `<div><strong>${escapeHtml(code)}</strong>: ${count} set${count === 1 ? "" : "s"}</div>`).join("");
+        return `<tr><td class="p-3">${escapeHtml(m.store.name || "Unnamed store")}</td><td class="p-3">${escapeHtml(m.store.area || "-")}</td><td class="p-3">${soldSetsHtml || "-"}</td><td class="p-3 font-semibold">${m.sets}</td><td class="p-3">${money(m.salesAmount)}</td><td class="p-3">${money(m.profit)}</td></tr>`;
     }).join("");
 
     if (historyBody) {
         const rows = [];
-        selectedSales.forEach(sale => {
-            const items = getSaleItemsForReport(sale);
-            const rawDate = sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at || "";
-            const date = getSaleDate(sale);
-            const matchingItems = items.filter(item => selectedIdSet.has(String(item.store_id ?? sale.store_id ?? "")));
-            if (matchingItems.length) {
-                const groupedByStore = new Map();
-                matchingItems.forEach(item => {
-                    const storeId = String(item.store_id ?? sale.store_id ?? "");
-                    if (!groupedByStore.has(storeId)) groupedByStore.set(storeId, []);
-                    groupedByStore.get(storeId).push(item);
+        selectedStores.forEach(store => {
+            const id = String(store.id);
+            saleHistory.forEach(sale => {
+                const items = saleRowsForStore(sale, id);
+                if (!items.length) return;
+                const isLegacySale = items.length === 1 && items[0] === sale;
+                const rawDate = dateValue(sale);
+                const codes = isLegacySale ? codeFor(sale) : [...new Set(items.map(codeFor))].join(", ");
+                const sets = isLegacySale ? num(sale.total_sets) : items.reduce((sum, item) => sum + itemSets(item), 0);
+                const pieces = isLegacySale ? num(sale.total_pcs ?? sale.total_pieces) :
+                    items.reduce((sum, item) => sum + num(item.pieces ?? item.total_pieces ?? item.total_pcs ?? (itemSets(item) * num(item.pcs_per_set ?? item.pieces_per_set))), 0);
+                rows.push({
+                    rawDate, date: dateLabel(sale), saleId: sale.id ?? "-", store: store.name || "-",
+                    area: store.area || "-", codes, sets, pieces, amount: saleAmountForStore(sale, id)
                 });
-                groupedByStore.forEach((storeItems, storeId) => {
-                    const store = storeList.find(st => String(st.id) === storeId);
-                    rows.push({
-                        dateValue: rawDate,
-                        date,
-                        saleId: sale.id,
-                        store: store?.name || sale.store_name || "-",
-                        area: store?.area || "-",
-                        codes: [...new Set(storeItems.map(getItemCode))].join(", "),
-                        sets: storeItems.reduce((n, item) => n + num(item.sets || item.total_sets), 0),
-                        pieces: storeItems.reduce((n, item) => n + num(item.pieces || item.total_pieces || (num(item.sets || item.total_sets) * num(item.pcs_per_set))), 0),
-                        saleValue: storeItems.reduce((n, item) => n + num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * num(item.sets || item.total_sets))), 0)
-                    });
-                });
-            } else if (!items.length && selectedIdSet.has(String(sale.store_id))) {
-                const store = storeList.find(st => String(st.id) === String(sale.store_id));
-                rows.push({ dateValue: rawDate, date, saleId: sale.id, store: store?.name || sale.store_name || "-", area: store?.area || "-", codes: getItemCode(sale), sets: num(sale.total_sets), pieces: num(sale.total_pcs || sale.total_pieces), saleValue: num(sale.total_sale) });
-            }
+            });
         });
-        rows.sort((a, b) => new Date(b.dateValue || 0) - new Date(a.dateValue || 0));
-        historyBody.innerHTML = rows.length ? rows.map(row => `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(row.date)}</td><td class="p-3">#${escapeHtml(row.saleId)}</td><td class="p-3">${escapeHtml(row.store)}</td><td class="p-3">${escapeHtml(row.area)}</td><td class="p-3 font-semibold">${escapeHtml(row.codes)}</td><td class="p-3">${row.sets}</td><td class="p-3">${row.pieces}</td><td class="p-3">${money(row.saleValue)}</td></tr>`).join("") : `<tr><td colspan="8" class="p-4 text-center text-slate-500">No sales history found for the selected store(s).</td></tr>`;
+        rows.sort((a, b) => (new Date(b.rawDate || 0).getTime() || 0) - (new Date(a.rawDate || 0).getTime() || 0));
+        historyBody.innerHTML = rows.length ? rows.map(r =>
+            `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">#${escapeHtml(r.saleId)}</td><td class="p-3">${escapeHtml(r.store)}</td><td class="p-3">${escapeHtml(r.area)}</td><td class="p-3 font-semibold">${escapeHtml(r.codes)}</td><td class="p-3">${r.sets}</td><td class="p-3">${Math.round(r.pieces)}</td><td class="p-3">${money(r.amount)}</td></tr>`
+        ).join("") : '<tr><td colspan="8" class="p-4 text-center text-slate-500">No sales history found for the selected store(s).</td></tr>';
     }
-    safeText("report-total-sets", totalSets);
-    safeText("report-total-sales", money(totalSales));
-    safeText("report-total-profit", money(totalProfit));
+
+    safeText("report-total-sets", storeMetrics.reduce((sum, m) => sum + m.sets, 0));
+    safeText("report-total-sales", money(storeMetrics.reduce((sum, m) => sum + m.salesAmount, 0)));
+    safeText("report-total-profit", money(storeMetrics.reduce((sum, m) => sum + m.profit, 0)));
 }
 
 /* =========================================================
