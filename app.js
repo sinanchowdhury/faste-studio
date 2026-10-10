@@ -1758,11 +1758,11 @@ function addSaleItemRow() {
                 <input type="number" class="form-input sale-price-per-set" min="0" step="0.01" value="0" placeholder="Sell price / set" oninput="calcSaleProfit()">
             </div>
             <div>
-                <label class="form-label">Seller Income / Set (৳)</label>
+                <label class="form-label">Seller Income / Set for This Product (৳)</label>
                 <input type="number" class="form-input sale-seller-per-set" min="0" step="0.01" value="0" placeholder="Seller income" oninput="calcSaleProfit()">
             </div>
             <div>
-                <label class="form-label">Manager Income / Set (৳)</label>
+                <label class="form-label">Manager Income / Set for This Product (৳)</label>
                 <input type="number" class="form-input sale-manager-per-set" min="0" step="0.01" value="0" placeholder="Manager income" oninput="calcSaleProfit()">
             </div>
             <div class="flex items-end">
@@ -3344,14 +3344,83 @@ function renderReportStoreCards() {
     const selected = new Set(Array.from(select.selectedOptions).map(o => String(o.value)));
     cards.innerHTML = storeList.length ? storeList.map(store => {
         const id = String(store.id), checked = selected.has(id);
-        return `<label class="card cursor-pointer hover:border-slate-500 transition-colors ${checked ? 'border-slate-900 ring-1 ring-slate-900' : ''}"><div class="flex items-start gap-3"><input type="checkbox" class="mt-1" ${checked ? 'checked' : ''} onchange="toggleReportStore(${JSON.stringify(id)}, this.checked)"><div><div class="font-bold">${escapeHtml(store.name || 'Unnamed shop')}</div><div class="muted mt-1">${escapeHtml(store.area || 'Area not set')}</div><div class="text-xs text-slate-500 mt-2">${escapeHtml(store.owner || '')}${store.phone ? ' · ' + escapeHtml(store.phone) : ''}</div></div></div></label>`;
+        const storeSales = saleHistory.filter(sale => {
+            const items = getSaleItemsForReportCards(sale);
+            return String(sale.store_id ?? "") === id || items.some(item => String(item.store_id ?? sale.store_id ?? "") === id);
+        }).sort((a, b) => new Date(b.created_at || b.sale_date || b.date || b.sold_at || 0) - new Date(a.created_at || a.sale_date || a.date || a.sold_at || 0));
+        const sets = storeSales.reduce((sum, sale) => {
+            const items = getSaleItemsForReportCards(sale).filter(item => String(item.store_id ?? sale.store_id ?? "") === id);
+            return sum + (items.length ? items.reduce((n, item) => n + num(item.sets || item.total_sets), 0) : num(sale.total_sets));
+        }, 0);
+        const amount = storeSales.reduce((sum, sale) => sum + getStoreSaleAmountForCards(sale, id), 0);
+        return `<button type="button" class="card report-store-card text-left ${checked ? 'report-store-card-active' : ''}" onclick="toggleReportStore(${JSON.stringify(id)}, ${!checked})" aria-pressed="${checked}">
+            <div class="flex items-start justify-between gap-3"><div class="min-w-0"><div class="font-bold">${escapeHtml(store.name || 'Unnamed shop')}</div><div class="muted mt-1">${escapeHtml(store.area || 'Area not set')}</div><div class="text-xs text-slate-500 mt-2">${escapeHtml(store.owner || '')}${store.phone ? ' · ' + escapeHtml(store.phone) : ''}</div></div><span class="report-store-check">${checked ? '✓ Selected' : 'View history'}</span></div>
+            <div class="grid grid-cols-2 gap-2 mt-4"><div class="report-store-metric"><span>Sales</span><strong>৳${money(amount)}</strong></div><div class="report-store-metric"><span>Sets sold</span><strong>${sets}</strong></div></div>
+            <div class="text-xs muted mt-3">${storeSales.length} separate sale record${storeSales.length === 1 ? '' : 's'} · Click to view below</div>
+        </button>`;
     }).join('') : '<div class="empty-state">No stores added yet.</div>';
+    renderSelectedStoreHistoryPanels();
+}
+
+function getSaleItemsForReportCards(sale) {
+    if (Array.isArray(sale?.items)) return sale.items;
+    if (typeof sale?.items === 'string') { try { return JSON.parse(sale.items) || []; } catch (_) { return []; } }
+    return [];
+}
+
+function getStoreSaleAmountForCards(sale, storeId) {
+    const items = getSaleItemsForReportCards(sale).filter(item => String(item.store_id ?? sale.store_id ?? '') === String(storeId));
+    if (!items.length) return String(sale.store_id ?? '') === String(storeId) ? num(sale.total_sale) : 0;
+    return items.reduce((sum, item) => sum + num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * num(item.sets || item.total_sets))), 0);
+}
+
+function renderSelectedStoreHistoryPanels() {
+    const panel = $("report-store-history-panels"), select = $("report-store-select");
+    if (!panel || !select) return;
+    const selectedIds = Array.from(select.selectedOptions).map(o => String(o.value));
+    if (!selectedIds.length) {
+        panel.innerHTML = '<div class="card muted">Click a store above to show its sales history here.</div>';
+        return;
+    }
+    const getCode = item => {
+        const productId = item?.product_id || item?.product?.id || item?.stock?.product_id;
+        const product = productId ? productsList.find(p => String(p.id) === String(productId)) : null;
+        return String(item?.product_code || item?.code || item?.print_code || product?.code || product?.print_code || item?.product?.code || item?.stock?.print_code || '-');
+    };
+    const getDate = sale => {
+        const raw = sale.created_at || sale.sale_date || sale.date || sale.sold_at || sale.updated_at;
+        if (!raw) return '-';
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', hour12:true });
+    };
+    panel.innerHTML = selectedIds.map(id => {
+        const store = storeList.find(s => String(s.id) === id);
+        const sales = saleHistory.filter(sale => String(sale.store_id ?? '') === id || getSaleItemsForReportCards(sale).some(item => String(item.store_id ?? sale.store_id ?? '') === id))
+            .sort((a,b) => new Date(b.created_at || b.sale_date || b.date || b.sold_at || 0) - new Date(a.created_at || a.sale_date || a.date || a.sold_at || 0));
+        const saleRows = [];
+        sales.forEach(sale => {
+            const items = getSaleItemsForReportCards(sale);
+            const matched = items.filter(item => String(item.store_id ?? sale.store_id ?? '') === id);
+            if (matched.length) {
+                matched.forEach(item => {
+                    const sets = num(item.sets || item.total_sets);
+                    const pcs = sets * num(item.pcs_per_set || item.pieces_per_set);
+                    const amount = num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * sets));
+                    saleRows.push({date:getDate(sale), id:sale.id, code:getCode(item), sets, pcs, amount});
+                });
+            } else if (!items.length) {
+                saleRows.push({date:getDate(sale), id:sale.id, code:getCode(sale), sets:num(sale.total_sets), pcs:num(sale.total_pcs || sale.total_pieces), amount:num(sale.total_sale)});
+            }
+        });
+        return `<section class="card report-store-history-card"><div class="flex flex-wrap items-center justify-between gap-2 mb-3"><div><h3 class="font-bold text-lg">${escapeHtml(store?.name || 'Store')}</h3><p class="muted">${escapeHtml(store?.area || 'Area not set')} · ${sales.length} sale${sales.length === 1 ? '' : 's'}</p></div><span class="report-store-check">${saleRows.length} history row${saleRows.length === 1 ? '' : 's'}</span></div>
+        <div class="table-wrapper report-history-scroll"><table class="w-full text-sm"><thead><tr class="border-b bg-slate-50 text-left"><th class="p-3">Date / Time</th><th class="p-3">Sale ID</th><th class="p-3">Product Code</th><th class="p-3">Sets</th><th class="p-3">Pieces</th><th class="p-3">Sales Amount</th></tr></thead><tbody>${saleRows.length ? saleRows.map(r => `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">#${escapeHtml(r.id)}</td><td class="p-3 font-semibold">${escapeHtml(r.code)}</td><td class="p-3">${r.sets}</td><td class="p-3">${Math.round(r.pcs)}</td><td class="p-3">৳${money(r.amount)}</td></tr>`).join('') : '<tr><td colspan="6" class="p-4 text-center muted">No sales history found for this store.</td></tr>'}</tbody></table></div></section>`;
+    }).join('');
 }
 
 function toggleReportStore(id, checked) {
     const select = $("report-store-select"); if (!select) return;
-    const option = Array.from(select.options).find(o => String(o.value) === String(id));
-    if (option) option.selected = checked;
+    // A store click focuses on that store, so its history is shown on its own below.
+    Array.from(select.options).forEach(option => { option.selected = checked && String(option.value) === String(id); });
     renderReportStoreCards();
     generateStoreReport();
 }
