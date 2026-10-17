@@ -1,0 +1,4385 @@
+/* =========================================================
+   FASTE STUDIO - BUSINESS MANAGEMENT SYSTEM
+   app.js
+   ========================================================= */
+
+/* =========================================================
+   SUPABASE BACKEND
+   ========================================================= */
+
+const SUPABASE_URL = "https://zetfirhngnmtzkytcpoi.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_JsEu4aPm2NQzXpz6dOlIQw_32AwUn-w";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
+    auth: { autoRefreshToken: true, persistSession: true, detectSessionInUrl: true }
+});
+
+function currentUserId() { return currentUser?.id || null; }
+
+/* =========================================================
+   GLOBAL DATA
+   ========================================================= */
+
+let productsList = [];
+let productionHistory = [];
+let productHouseStock = [];
+let saleHistory = [];
+let storeList = [];
+let sellerList = [];
+let generalLedger = [];
+let withdrawalHistory = [];
+
+let currentUser = null;
+let authProfile = null;
+
+let isSignupMode = false;
+let appLoading = false;
+
+
+/* =========================================================
+   SMALL HELPERS
+   ========================================================= */
+
+function $(id) {
+    return document.getElementById(id);
+}
+
+function safeValue(id, fallback = "") {
+    const el = $(id);
+    return el ? el.value : fallback;
+}
+
+function safeText(id, value) {
+    const el = $(id);
+    if (el) {
+        el.textContent = value ?? "";
+    }
+}
+
+function num(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function money(value) {
+    return num(value).toFixed(2);
+}
+
+function todayDate() {
+    return new Date().toISOString().split("T")[0];
+}
+
+function escapeHtml(value) {
+    return String(value ?? "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+}
+
+function showError(message) {
+    console.error(message);
+    alert(message);
+}
+
+function setButtonLoading(button, loading, normalText = "Save") {
+    if (!button) return;
+
+    button.disabled = loading;
+
+    if (loading) {
+        button.dataset.oldText = button.textContent;
+        button.textContent = "Saving...";
+    } else {
+        button.textContent =
+            button.dataset.oldText || normalText;
+    }
+}
+
+function closeModalSafe(id) {
+    const modal = $(id);
+    if (modal) {
+        modal.classList.remove("active");
+        modal.style.display = "";
+    }
+}
+
+
+/* =========================================================
+   AUTH UI
+   ========================================================= */
+
+function showAuthModal() {
+    const modal = $("auth-modal");
+
+    if (!modal) return;
+
+    // Keep the auth overlay directly under <body> so no parent layout can
+    // affect position:fixed. This prevents the email/password fields from
+    // appearing at the top of the dashboard.
+    if (modal.parentElement !== document.body) {
+        document.body.appendChild(modal);
+    }
+
+    modal.classList.add("active");
+    modal.style.display = "flex";
+    document.body.classList.add("auth-open");
+}
+
+function closeAuthModal() {
+    const modal = $("auth-modal");
+
+    if (!modal) return;
+
+    modal.classList.remove("active");
+    modal.style.display = "none";
+    document.body.classList.remove("auth-open");
+}
+
+function setAuthMessage(message, type = "") {
+    const el = $("auth-message");
+
+    if (!el) return;
+
+    el.textContent = message;
+    el.className = "auth-message";
+
+    if (type) {
+        el.classList.add(type);
+    }
+}
+
+function setAuthMode(mode = "login") {
+
+    isSignupMode = mode === "signup";
+
+    const nameGroup = $("auth-name-group");
+    const nameInput = $("auth-name");
+    const subtitle = $("auth-subtitle");
+    const submitButton = $("auth-submit-button");
+    const switchButton = $("auth-switch-button");
+    const pending = $("auth-pending");
+    const form = $("auth-form");
+
+    if (pending) {
+        pending.style.display = "none";
+    }
+
+    if (form) {
+        form.style.display = "block";
+    }
+
+    if (nameGroup) {
+        nameGroup.style.display =
+            isSignupMode ? "block" : "none";
+    }
+
+    if (nameInput) {
+        nameInput.required = isSignupMode;
+    }
+
+    if (subtitle) {
+        subtitle.textContent = isSignupMode
+            ? "Create your FASTE STUDIO account"
+            : "Login to your FASTE STUDIO account";
+    }
+
+    if (submitButton) {
+        submitButton.textContent =
+            isSignupMode ? "Create Account" : "Login";
+    }
+
+    if (switchButton) {
+        switchButton.textContent =
+            isSignupMode
+                ? "Already have an account? Login"
+                : "Create new account";
+    }
+
+    setAuthMessage("");
+}
+
+function showPendingMessage() {
+
+    const form = $("auth-form");
+    const pending = $("auth-pending");
+
+    if (form) {
+        form.style.display = "none";
+    }
+
+    if (pending) {
+        pending.style.display = "block";
+    }
+}
+
+
+/* =========================================================
+   GET PROFILE
+   ========================================================= */
+
+async function getMyProfile(userId) {
+    const { data, error } = await supabaseClient.from("profiles").select("*").eq("id", userId).maybeSingle();
+    if (error) throw error;
+    return data || null;
+}
+
+/* =========================================================
+   AUTH LOGIN / SIGNUP
+   ========================================================= */
+
+async function handleLoginSubmit(event) {
+    if (event) event.preventDefault();
+    const email = safeValue("auth-email").trim();
+    const password = safeValue("auth-password");
+    const fullName = safeValue("auth-name").trim();
+    const button = $("auth-submit-button");
+    if (!email || !password) return setAuthMessage("Email and password are required.", "error");
+    if (isSignupMode && !fullName) return setAuthMessage("Please enter your full name.", "error");
+    setButtonLoading(button, true, isSignupMode ? "Create Account" : "Login");
+    try {
+        if (isSignupMode) {
+            const { data, error } = await supabaseClient.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+            if (error) throw error;
+            if (!data.user) throw new Error("Could not create account.");
+            const { error: profileError } = await supabaseClient.from("profiles").upsert({
+                id: data.user.id, email: email.toLowerCase(), full_name: fullName, role: "seller", approved: false
+            });
+            if (profileError) throw profileError;
+            await supabaseClient.auth.signOut();
+            setAuthMessage("Account created successfully. Please wait for admin approval.", "success");
+            setTimeout(()=>setAuthMode("login"),1000); return;
+        }
+        const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        currentUser=data.user; await handleAuthSuccess(data.user);
+    } catch(error) { console.error(error); setAuthMessage(error.message || "Authentication failed.", "error"); }
+    finally { setButtonLoading(button,false,isSignupMode?"Create Account":"Login"); }
+}
+
+/* =========================================================
+   AUTH SUCCESS
+   ========================================================= */
+
+async function handleAuthSuccess(user) {
+    if (!user) return false;
+    currentUser=user; const profile=await getMyProfile(user.id);
+    if (!profile) { currentUser=null; authProfile=null; setAuthMessage("Your profile was not found.","error"); return false; }
+    authProfile=profile;
+    if (profile.approved !== true) { showPendingMessage(); await supabaseClient.auth.signOut(); currentUser=null; authProfile=profile; return false; }
+    updateUserDisplay(); closeAuthModal(); await loadInitialData(); showPage("dashboard"); return true;
+}
+
+/* =========================================================
+   USER DISPLAY
+   ========================================================= */
+
+function updateUserDisplay() {
+
+    const nameEl = $("user-display-name");
+    const roleEl = $("user-role-badge");
+
+    if (!authProfile) return;
+
+    if (nameEl) {
+        nameEl.textContent =
+            authProfile.full_name ||
+            authProfile.email ||
+            "User";
+    }
+
+    if (roleEl) {
+        roleEl.textContent =
+            authProfile.role || "user";
+    }
+}
+
+
+/* =========================================================
+   ADMIN USER MANAGEMENT
+   ========================================================= */
+
+function addAdminUsersButton() {
+
+    const role =
+        String(authProfile?.role || "").toLowerCase();
+
+    // Keep the manual role-income button visible on the Balance page.
+    const amountButton = $("add-role-amount-button");
+    if (amountButton) amountButton.style.display = "inline-flex";
+
+    // User management remains restricted to admin accounts.
+    if (role !== "admin") return;
+
+    if ($("admin-users-button")) return;
+
+    const container =
+        document.getElementById("header-actions") ||
+        document.querySelector(".topbar-actions") ||
+        document.querySelector(".header-actions") ||
+        document.querySelector("header");
+
+    if (!container) return;
+
+    const button =
+        document.createElement("button");
+
+    button.id = "admin-users-button";
+    button.className = "secondary-button";
+    button.textContent = "Users";
+    button.onclick = openAdminUsers;
+
+    container.appendChild(button);
+
+}
+
+function openAdminUsers() {
+
+    if (
+        String(authProfile?.role || "").toLowerCase()
+        !== "admin"
+    ) {
+        return;
+    }
+
+    const modal = $("admin-users-modal");
+
+    if (modal) {
+        modal.classList.add("active");
+        modal.style.display = "flex";
+    }
+
+    loadAdminUsers();
+}
+
+function closeAdminUsers() {
+
+    const modal = $("admin-users-modal");
+
+    if (!modal) return;
+
+    modal.classList.remove("active");
+    modal.style.display = "none";
+}
+
+async function loadAdminUsers() {
+
+    const body =
+        $("admin-users-body");
+
+    if (!body) return;
+
+    body.innerHTML =
+        `<tr>
+            <td colspan="6">Loading...</td>
+        </tr>`;
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("profiles")
+        .select("*")
+        .order("created_at", {
+            ascending: false
+        });
+
+    if (error) {
+
+        body.innerHTML =
+            `<tr>
+                <td colspan="6">
+                    ${escapeHtml(error.message)}
+                </td>
+            </tr>`;
+
+        return;
+    }
+
+    if (!data || !data.length) {
+
+        body.innerHTML =
+            `<tr>
+                <td colspan="6">
+                    No users found.
+                </td>
+            </tr>`;
+
+        return;
+    }
+
+    body.innerHTML = data.map(user => {
+
+        const approved =
+            user.approved === true;
+
+        return `
+            <tr>
+                <td>${escapeHtml(user.full_name || "-")}</td>
+                <td>${escapeHtml(user.email || "-")}</td>
+                <td>${escapeHtml(user.role || "-")}</td>
+                <td>
+                    ${approved ? "Approved" : "Pending"}
+                </td>
+                <td>
+                    <select
+                        onchange="setUserApproval('${user.id}', this.value === 'true')"
+                    >
+                        <option
+                            value="true"
+                            ${approved ? "selected" : ""}
+                        >
+                            Approved
+                        </option>
+
+                        <option
+                            value="false"
+                            ${!approved ? "selected" : ""}
+                        >
+                            Pending
+                        </option>
+                    </select>
+                </td>
+                <td>
+                    <button
+                        onclick="setUserApproval('${user.id}', ${!approved})"
+                    >
+                        ${approved ? "Disable" : "Approve"}
+                    </button>
+                </td>
+            </tr>
+        `;
+    }).join("");
+}
+
+async function setUserApproval(userId, approved) {
+
+    if (
+        String(authProfile?.role || "").toLowerCase()
+        !== "admin"
+    ) {
+        alert("Only admin can manage users.");
+        return;
+    }
+
+    if (!userId) return;
+
+    const {
+        error
+    } = await supabaseClient
+        .from("profiles")
+        .update({
+            approved: Boolean(approved)
+        })
+        .eq("id", userId);
+
+    if (error) {
+
+        alert(
+            "Could not update user:\n" +
+            error.message
+        );
+
+        return;
+    }
+
+    await loadAdminUsers();
+}
+
+
+/* =========================================================
+   LOGOUT
+   ========================================================= */
+
+async function handleLogout() {
+    await supabaseClient.auth.signOut(); currentUser=null; authProfile=null;
+    productsList=[]; productionHistory=[]; productHouseStock=[]; saleHistory=[]; storeList=[]; generalLedger=[]; withdrawalHistory=[];
+    showAuthModal(); setAuthMode("login"); showPage("dashboard");
+}
+
+async function checkAuthOnLoad() {
+    try {
+        const { data } = await supabaseClient.auth.getSession();
+        const user = data?.session?.user;
+        if (!user) { showAuthModal(); setAuthMode("login"); return; }
+        currentUser=user; if (!(await handleAuthSuccess(user))) showAuthModal();
+    } catch(e) { console.error(e); showAuthModal(); setAuthMode("login"); }
+}
+function setupAuthListener() {
+    supabaseClient.auth.onAuthStateChange((_event, session) => {
+        if (!session?.user) { currentUser=null; authProfile=null; }
+    });
+}
+
+/* =========================================================
+   NAVIGATION
+   ========================================================= */
+
+function showPage(pageId) {
+
+    console.log("Opening page:", pageId);
+
+    // Hide every page
+    document.querySelectorAll(".page-content").forEach(page => {
+        page.classList.remove("active");
+        page.style.display = "none";
+    });
+
+    // Remove active navigation
+    document.querySelectorAll("aside nav button").forEach(button => {
+        button.classList.remove("active");
+    });
+
+    // Find target page
+    const targetPage = document.getElementById("page-" + pageId);
+
+    if (!targetPage) {
+        console.error("Page not found:", "page-" + pageId);
+        return;
+    }
+
+    // Show target page
+    targetPage.classList.add("active");
+    targetPage.style.display = "block";
+
+    // Active sidebar button
+    const targetNav = document.getElementById("nav-" + pageId);
+
+    if (targetNav) {
+        targetNav.classList.add("active");
+    }
+
+    // Page functions
+    try {
+
+        if (pageId === "dashboard") {
+            updateDashboard();
+        }
+
+        if (pageId === "product-list") {
+            renderProductList();
+        }
+
+        if (pageId === "production") {
+            prepareProductionForm();
+            renderProductionHistory();
+        }
+
+        if (pageId === "product-house") {
+            renderProductHouse();
+        }
+
+        if (pageId === "sale") {
+            prepareSaleForm();
+            renderSaleHistory();
+        }
+
+        if (pageId === "balance") {
+            renderLedger();
+        }
+
+        if (pageId === "stores") {
+            renderStores();
+        }
+
+        if (pageId === "sellers") {
+            renderSellers();
+        }
+
+        if (pageId === "report") {
+            renderReportStoreCards();
+            generateStoreReport();
+        }
+
+    } catch (error) {
+        console.error("Page function error:", error);
+    }
+}
+/* =========================================================
+   MODALS
+   ========================================================= */
+
+function openModal(id) {
+
+    const modal = $(id);
+
+    if (!modal) return;
+
+    modal.classList.add("active");
+    modal.style.display = "flex";
+}
+
+function closeModal(id) {
+
+    const modal = $(id);
+
+    if (!modal) return;
+
+    modal.classList.remove("active");
+    modal.style.display = "none";
+}
+
+
+/* =========================================================
+   LOAD ALL DATA
+   ========================================================= */
+
+async function loadInitialData() {
+
+    if (appLoading) return;
+
+    appLoading = true;
+
+    try {
+
+        await Promise.all([
+            fetchProductsFromSupabase(),
+            fetchProductionFromSupabase(),
+            fetchStockFromSupabase(),
+            fetchSalesFromSupabase(),
+            fetchStoresFromSupabase(),
+            fetchSellersFromSupabase(),
+            fetchLedgerFromSupabase(),
+            fetchWithdrawalsFromSupabase()
+        ]);
+
+        renderProductList();
+        renderProductionHistory();
+        renderProdSummary();
+        renderProductHouse();
+        renderSaleHistory();
+        renderSaleSummary();
+        renderLedger();
+        renderStores();
+        renderSellers();
+        updateDashboard();
+
+        addAdminUsersButton();
+
+    } catch (error) {
+
+        console.error(
+            "Data loading error:",
+            error
+        );
+
+    } finally {
+
+        appLoading = false;
+    }
+}
+
+
+/* =========================================================
+   PRODUCTS
+   ========================================================= */
+
+function calcPieceSize() {
+
+    const fullSize =
+        num(safeValue("p-full-size"));
+
+    const pcsSet =
+        num(safeValue("p-pcs-set"));
+
+    const output =
+        $("p-pc-size");
+
+    if (!output) return;
+
+    if (fullSize > 0 && pcsSet > 0) {
+        output.value =
+            (fullSize / pcsSet).toFixed(2);
+    } else {
+        output.value = "";
+    }
+}
+
+
+async function fetchProductsFromSupabase() {
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("products")
+        .select("*")
+        .order("created_at", {
+            ascending: false
+        });
+
+    if (error) {
+        throw error;
+    }
+
+    productsList = data || [];
+}
+
+
+async function saveProduct(event) {
+    if (event) event.preventDefault();
+    const form = $("product-form");
+    const bulkText = safeValue("bulk-products-input").trim();
+    let records = [];
+    if (bulkText) {
+        records = bulkText.split(/\r?\n/).map(line => line.split(",").map(v => v.trim())).filter(parts => parts.some(Boolean)).map(parts => {
+            const fullSize = num(parts[2]);
+            const pcsSet = num(parts[3]);
+            return { code: parts[0] || "", type: parts[1] || "", full_size: fullSize, pcs_set: pcsSet, pc_size: pcsSet > 0 ? fullSize / pcsSet : 0 };
+        });
+    } else {
+        const fullSize = num(safeValue("p-full-size"));
+        const pcsSet = num(safeValue("p-pcs-set"));
+        records = [{ code: safeValue("p-code").trim(), type: safeValue("p-type").trim(), full_size: fullSize, pcs_set: pcsSet, pc_size: num(safeValue("p-pc-size")) }];
+    }
+    if (!records.length || records.some(p => !p.code || !p.type || p.full_size <= 0 || p.pcs_set <= 0)) {
+        alert("Enter valid products. Bulk format: Code, Type, Full Size (number), Pieces per Set.");
+        return;
+    }
+    const button = form?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true);
+    try {
+        const { error } = await supabaseClient.from("products").insert(records.map(p => ({ ...p, user_id: currentUserId() })));
+        if (error) throw error;
+        await fetchProductsFromSupabase();
+        renderProductList(); updateDashboard();
+        if (form) form.reset(); calcPieceSize(); closeModalSafe("add-product-modal");
+        alert(`${records.length} product${records.length === 1 ? "" : "s"} saved successfully.`);
+    } catch (error) {
+        console.error("Save product error:", error);
+        alert("Product save failed:\n" + error.message);
+    } finally { setButtonLoading(button, false, "Save Product"); }
+}
+
+async function deleteProduct(id) {
+    const product = productsList.find(p => String(p.id) === String(id));
+    if (!product) return;
+    if (productHouseStock.some(s => String(s.product_id) === String(id))) {
+        alert("This product is used in Product House stock. Remove/destroy its stock first.");
+        return;
+    }
+    if (!confirm(`Delete product ${product.code || product.type}?`)) return;
+    try {
+        const { error } = await supabaseClient.from("products").delete().eq("id", id);
+        if (error) throw error;
+        await fetchProductsFromSupabase(); renderProductList(); updateDashboard();
+        alert("Product deleted.");
+    } catch (error) { alert("Product delete failed:\n" + error.message); }
+}
+
+function renderProductList() {
+    const body = $("product-list-body"), grid = $("product-card-grid");
+    const query = safeValue("search-product-input").trim().toLowerCase();
+    const rows = productsList.filter(p => `${p.code || ""} ${p.type || ""} ${p.full_size ?? ""}`.toLowerCase().includes(query));
+    if (body) body.innerHTML = rows.length ? rows.map((p, i) => `<tr><td>${i + 1}</td><td>${escapeHtml(p.code || "-")}</td><td>${escapeHtml(p.type || "-")}</td><td>${escapeHtml(p.full_size ?? "-")}</td><td>${num(p.pcs_set)}</td><td>${escapeHtml(p.pc_size ?? "-")}</td><td>${p.created_at ? new Date(p.created_at).toLocaleDateString() : "-"}</td></tr>`).join("") : `<tr><td colspan="7" class="p-3">No products found</td></tr>`;
+    const breakdown = $("product-type-breakdown-cards");
+    if (breakdown) {
+        const types = new Map(); productsList.forEach(p => { const key = p.type || "Unknown"; types.set(key, (types.get(key) || 0) + 1); });
+        breakdown.innerHTML = [...types].map(([type, count]) => `<div class="card"><p class="muted">${escapeHtml(type)}</p><div class="stat-value">${count}</div><p class="muted">product codes</p></div>`).join("");
+    }
+    if (grid) grid.innerHTML = rows.length ? rows.map(p => `<article class="card border-t-4 border-t-slate-800 hover:shadow-md transition-shadow"><div class="flex justify-between gap-3 items-start"><div><p class="muted">PRODUCT CODE</p><h3 class="text-xl font-extrabold">${escapeHtml(p.code || "-")}</h3><p class="text-slate-600 mt-1">${escapeHtml(p.type || "-")}</p></div><span class="rounded-lg bg-slate-100 px-3 py-1 text-sm font-semibold">${num(p.pcs_set)} pcs/set</span></div><div class="grid grid-cols-2 gap-3 mt-5"><div class="rounded-lg bg-slate-50 p-3"><p class="muted">Full Size</p><strong>${escapeHtml(p.full_size ?? "-")}</strong></div><div class="rounded-lg bg-slate-50 p-3"><p class="muted">Piece Size</p><strong>${escapeHtml(p.pc_size ?? "-")}</strong></div></div><div class="flex items-center justify-between mt-4"><span class="muted">${p.created_at ? new Date(p.created_at).toLocaleDateString() : "Product"}</span><button type="button" class="btn btn-danger" onclick="deleteProduct(${JSON.stringify(p.id)})">Delete</button></div></article>`).join("") : `<div class="card empty-state sm:col-span-2 xl:col-span-3">${productsList.length ? "No matching products found." : "No products added yet. Click + Add Product to begin."}</div>`;
+}
+
+function filterProductOptions(input, selectClass) {
+    const row = input?.closest(".production-item-row, .sale-item-row");
+    const select = row?.querySelector("." + selectClass);
+    if (!select) return;
+    const query = input.value.trim().toLowerCase();
+    const current = select.value;
+    let source = [];
+    if (selectClass === "prod-product-select") {
+        source = productsList.map(p => ({ id: p.id, label: `${p.code || ""} - ${p.type || ""}`, raw: p }));
+    } else {
+        source = productHouseStock.filter(s => num(s.sets) > 0).map(s => {
+            const p = productsList.find(x => String(x.id) === String(s.product_id));
+            return { id: s.id, label: `${p?.code || s.print_code || ""} - ${p?.type || s.type || ""} (${num(s.sets)} sets)`, raw: s };
+        });
+    }
+    const filtered = source.filter(item => !query || item.label.toLowerCase().includes(query));
+    select.innerHTML = '<option value="">Select product</option>' + filtered.map(item => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.label)}</option>`).join("");
+    if (filtered.some(item => String(item.id) === String(current))) select.value = current;
+}
+
+/* =========================================================
+   PRODUCTION
+   ========================================================= */
+
+async function fetchProductionFromSupabase() {
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("productions")
+        .select("*")
+        .order("created_at", {
+            ascending: false
+        });
+
+    if (error) {
+        throw error;
+    }
+
+    productionHistory = data || [];
+}
+
+
+function prepareProductionForm() {
+
+    const container =
+        $("prod-items-container");
+
+    if (!container) return;
+
+    if (!container.children.length) {
+        addProdItemRow();
+    }
+
+    const dateInput =
+        $("prod-date");
+
+    if (
+        dateInput &&
+        !dateInput.value
+    ) {
+        dateInput.value = todayDate();
+    }
+
+    calcProdCosts();
+}
+
+
+function addProdItemRow() {
+
+    const container =
+        $("prod-items-container");
+
+    if (!container) return;
+
+    const row =
+        document.createElement("div");
+
+    row.className =
+        "production-item-row";
+
+    row.innerHTML = `
+        <input type="search" class="form-input mb-2 prod-product-search" placeholder="Search product code/type..." oninput="filterProductOptions(this, 'prod-product-select')">
+        <select class="form-input prod-product-select" onchange="calcProdCosts()">
+            <option value="">Select product</option>
+
+            ${productsList.map(p => `
+                <option value="${p.id}">
+                    ${escapeHtml(p.code)}
+                    - ${escapeHtml(p.type)}
+                </option>
+            `).join("")}
+        </select>
+
+        <input
+            type="number"
+            class="prod-sets"
+            min="1"
+            value="1"
+            placeholder="Sets"
+            oninput="calcProdCosts()"
+        >
+
+        <button
+            type="button"
+            onclick="this.closest('.production-item-row').remove(); calcProdCosts();"
+        >
+            ×
+        </button>
+    `;
+
+    container.appendChild(row);
+
+    calcProdCosts();
+}
+
+
+function calcProdCosts() {
+
+    const costs = [
+        "cost-sticker",
+        "cost-board",
+        "cost-poly",
+        "cost-tape",
+        "cost-transport",
+        "cost-fixed",
+        "cost-ads",
+        "cost-cutting",
+        "cost-packing"
+    ];
+
+    let totalCost = 0;
+
+    costs.forEach(id => {
+        totalCost += num(
+            safeValue(id)
+        );
+    });
+
+    let totalSets = 0;
+
+    document
+        .querySelectorAll(".prod-sets")
+        .forEach(input => {
+            totalSets += num(input.value);
+        });
+
+    const totalPcs =
+        document.querySelectorAll(
+            ".production-item-row"
+        ).length
+            ? Array.from(
+                document.querySelectorAll(
+                    ".production-item-row"
+                )
+            ).reduce((sum, row) => {
+
+                const select =
+                    row.querySelector(
+                        ".prod-product-select"
+                    );
+
+                const sets =
+                    num(
+                        row.querySelector(
+                            ".prod-sets"
+                        )?.value
+                    );
+
+                const product =
+                    productsList.find(
+                        p =>
+                            String(p.id) ===
+                            String(select?.value)
+                    );
+
+                return sum +
+                    sets *
+                    num(product?.pcs_set);
+
+            }, 0)
+            : 0;
+
+    const costPerSet =
+        totalSets > 0
+            ? totalCost / totalSets
+            : 0;
+
+    safeText(
+        "prod-total-sets-lbl",
+        totalSets
+    );
+
+    safeText(
+        "prod-total-pcs",
+        totalPcs
+    );
+
+    safeText(
+        "prod-total-cost",
+        money(totalCost)
+    );
+
+    safeText(
+        "prod-cost-per-set",
+        money(costPerSet)
+    );
+
+    const costPerSetInput =
+        $("prod-cost-per-set");
+
+    if (
+        costPerSetInput &&
+        "value" in costPerSetInput
+    ) {
+        costPerSetInput.value =
+            costPerSet.toFixed(2);
+    }
+
+    return {
+        totalCost,
+        totalSets,
+        totalPcs,
+        costPerSet
+    };
+}
+
+
+async function saveProduction(event) {
+
+    if (event) {
+        event.preventDefault();
+    }
+
+    const form =
+        $("production-form");
+
+    const printCode =
+        safeValue(
+            "prod-print-code"
+        ).trim();
+
+    if (!printCode) {
+        alert("Print code is required.");
+        return;
+    }
+
+    const rows =
+        Array.from(
+            document.querySelectorAll(
+                ".production-item-row"
+            )
+        );
+
+    if (!rows.length) {
+        alert("Add at least one product.");
+        return;
+    }
+
+    const items = [];
+
+    for (const row of rows) {
+
+        const productId =
+            row.querySelector(
+                ".prod-product-select"
+            )?.value;
+
+        const sets =
+            num(
+                row.querySelector(
+                    ".prod-sets"
+                )?.value
+            );
+
+        if (!productId || sets <= 0) {
+            alert(
+                "Please select product and valid sets."
+            );
+            return;
+        }
+
+        const product =
+            productsList.find(
+                p =>
+                    String(p.id) ===
+                    String(productId)
+            );
+
+        if (!product) {
+            alert("Product not found.");
+            return;
+        }
+
+        items.push({
+            productId,
+            sets,
+            product
+        });
+    }
+
+    const calculation =
+        calcProdCosts();
+
+    const {
+        totalCost,
+        totalSets,
+        totalPcs,
+        costPerSet
+    } = calculation;
+
+    const button =
+        form?.querySelector(
+            'button[type="submit"]'
+        );
+
+    setButtonLoading(
+        button,
+        true
+    );
+
+    try {
+
+        /* FIRST: production record */
+
+        const {
+            data: production,
+            error: productionError
+        } = await supabaseClient
+            
+.from("productions")
+.insert({
+    batch_code: printCode,
+    print_code: printCode,
+    code: printCode,
+
+    items: items.map(item => ({
+        productId: item.productId,
+        sets: item.sets,
+        product: item.product
+    })),
+
+    costs: {
+        sticker: num(safeValue("cost-sticker")),
+        board: num(safeValue("cost-board")),
+        poly: num(safeValue("cost-poly")),
+        tape: num(safeValue("cost-tape")),
+        transport: num(safeValue("cost-transport")),
+        fixed: num(safeValue("cost-fixed")),
+        ads: num(safeValue("cost-ads")),
+        cutting: num(safeValue("cost-cutting")),
+        packing: num(safeValue("cost-packing"))
+    },
+
+    total_sets: totalSets,
+    total_pcs: totalPcs,
+    total_cost: totalCost,
+    avg_cost_per_set: costPerSet,
+    cost_per_set: costPerSet,
+
+    date: safeValue("prod-date", todayDate())
+})
+
+            .select()
+            .single();
+
+        if (productionError) {
+            throw productionError;
+        }
+
+        /* SECOND: stock rows */
+
+        const stockRows =
+            items.map(item => ({
+                print_code: printCode,
+                product_id: item.productId,
+                type: item.product.type,
+                sets: item.sets,
+                pcs:
+                    item.sets *
+                    num(item.product.pcs_set),
+                cost_per_set: costPerSet,
+                production_id: production.id,
+                date:
+                    safeValue(
+                        "prod-date",
+                        todayDate()
+                    )
+            }));
+
+        const {
+            error: stockError
+        } = await supabaseClient
+            .from("stock")
+            .insert(stockRows);
+
+        if (stockError) {
+
+            /* rollback production */
+
+            await supabaseClient
+                .from("productions")
+                .delete()
+                .eq("id", production.id);
+
+            throw stockError;
+        }
+
+        await Promise.all([
+            fetchProductionFromSupabase(),
+            fetchStockFromSupabase()
+        ]);
+
+        renderProductionHistory();
+        renderProdSummary();
+        renderProductHouse();
+        updateDashboard();
+
+        if (form) {
+            form.reset();
+        }
+
+        const container =
+            $("prod-items-container");
+
+        if (container) {
+            container.innerHTML = "";
+        }
+
+        prepareProductionForm();
+
+        alert(
+            "Production saved successfully."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Production save error:",
+            error
+        );
+
+        alert(
+            "Production save failed:\n" +
+            error.message
+        );
+
+    } finally {
+
+        setButtonLoading(
+            button,
+            false,
+            "Save Production"
+        );
+    }
+}
+
+
+function renderProductionRows(rows) {
+    const body = $("production-history-body");
+    if (!body) return;
+    if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="18" class="p-3">No production history</td></tr>`;
+        return;
+    }
+    const costKeys = ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
+    body.innerHTML = rows.map((p,index) => {
+        const c = p.costs || {};
+        const madeSets = Array.isArray(p.items)
+            ? p.items.map(item => {
+                const code = item.product?.code || item.product_code || item.code || "-";
+                return `${escapeHtml(code)}: ${num(item.sets)} set`;
+            }).join("<br>")
+            : "-";
+        return `<tr>
+            <td class="p-3">${index+1}</td>
+            <td class="p-3">${escapeHtml(p.date || "-")}</td>
+            <td class="p-3">${escapeHtml(p.print_code || p.batch_code || p.code || "-")}</td>
+            <td class="p-3">${madeSets}</td>
+            <td class="p-3">${num(p.total_sets)}</td>
+            <td class="p-3">${num(p.total_pcs)}</td>
+            ${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}
+            <td class="p-3 font-bold">৳${money(p.total_cost)}</td>
+            <td class="p-3">৳${money(p.cost_per_set)}</td>
+            <td class="p-3 whitespace-nowrap"><button type="button" class="btn btn-primary mr-1" onclick="openProductionEdit(${JSON.stringify(p.id)})">Edit</button><button type="button" class="btn btn-danger" onclick="deleteProduction(${JSON.stringify(p.id)})">Delete</button></td>
+        </tr>`;
+    }).join("");
+}
+
+function renderProductionHistory() {
+    renderProductionRows(productionHistory);
+}
+
+async function deleteProduction(id) {
+    const production = productionHistory.find(p => String(p.id) === String(id));
+    if (!production) return;
+    const label = production.print_code || production.batch_code || production.code || id;
+    if (!confirm(`Delete production ${label}? Stock rows created by this production will also be removed. This cannot be undone.`)) return;
+    try {
+        const { error: stockError } = await supabaseClient.from("stock").delete().eq("production_id", production.id);
+        if (stockError) throw stockError;
+        const { error } = await supabaseClient.from("productions").delete().eq("id", production.id);
+        if (error) throw error;
+        await Promise.all([fetchProductionFromSupabase(), fetchStockFromSupabase()]);
+        renderProductionHistory(); renderProdSummary(); renderProductHouse(); renderSaleSummary(); updateDashboard();
+        alert("Production and its remaining stock rows deleted.");
+    } catch (error) {
+        console.error("Delete production error:", error);
+        alert("Production delete failed:\n" + error.message);
+    }
+}
+
+function openProductionEdit(id) {
+    const p = productionHistory.find(x => String(x.id) === String(id));
+    if (!p) return;
+    $("edit-production-id").value = p.id;
+    $("edit-prod-date").value = p.date || todayDate();
+    $("edit-prod-code").value = p.print_code || p.batch_code || p.code || "";
+    const items = Array.isArray(p.items) ? p.items : [];
+    $("edit-prod-items").innerHTML = items.map((item, i) => {
+        const productId = item.productId || item.product_id || item.product?.id || "";
+        const code = item.product?.code || item.product_code || item.code || "-";
+        return `<div class="grid grid-cols-2 gap-3 items-center border rounded-lg p-3">
+            <div><div class="font-semibold">${escapeHtml(code)}</div><input type="hidden" class="edit-prod-product-id" value="${escapeHtml(productId)}"></div>
+            <input type="number" min="0" class="form-input edit-prod-sets" value="${num(item.sets)}" placeholder="Sets">
+        </div>`;
+    }).join("");
+    const keys=["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
+    keys.forEach(k => { const el=$("edit-cost-"+k); if(el) el.value=num(p.costs?.[k]); });
+    openModal("edit-production-modal");
+}
+
+async function saveProductionEdit(event) {
+    if (event) event.preventDefault();
+    const id = safeValue("edit-production-id");
+    const p = productionHistory.find(x => String(x.id) === String(id));
+    if (!p) return;
+    const rows = Array.from(document.querySelectorAll("#edit-prod-items > div"));
+    const items = rows.map(row => ({
+        productId: row.querySelector(".edit-prod-product-id")?.value,
+        sets: num(row.querySelector(".edit-prod-sets")?.value)
+    })).filter(x => x.productId);
+    if (!items.length || items.some(x => x.sets < 0)) { alert("Enter valid production quantities."); return; }
+    const oldItems = Array.isArray(p.items) ? p.items : [];
+    const oldProduced = {};
+    oldItems.forEach(i => { const pid=i.productId||i.product_id||i.product?.id; if(pid) oldProduced[pid]=(oldProduced[pid]||0)+num(i.sets); });
+    const sold = {};
+    productHouseStock.filter(s => String(s.production_id) === String(p.id)).forEach(s => {
+        const pid=s.product_id; if(pid) sold[pid] = Math.max(0, (oldProduced[pid]||0) - num(s.sets) - (sold[pid]||0));
+    });
+    // If a production stock row was completely sold/deleted, oldProduced represents the sold quantity.
+    Object.keys(oldProduced).forEach(pid => {
+        if (!(pid in sold)) sold[pid] = oldProduced[pid];
+    });
+    const newMap = Object.fromEntries(items.map(i => [i.productId, i.sets]));
+    for (const pid of Object.keys(sold)) {
+        if (num(newMap[pid]) < num(sold[pid])) {
+            alert("Cannot reduce a product below the quantity already sold.");
+            return;
+        }
+    }
+    const costs = {};
+    ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"].forEach(k => costs[k]=num(safeValue("edit-cost-"+k)));
+    const totalCost=Object.values(costs).reduce((a,b)=>a+b,0);
+    const totalSets=items.reduce((a,i)=>a+num(i.sets),0);
+    const totalPcs=items.reduce((a,i)=>{const pr=productsList.find(p=>String(p.id)===String(i.productId)); return a+num(i.sets)*num(pr?.pcs_set);},0);
+    const costPerSet=totalSets ? totalCost/totalSets : 0;
+    try {
+        const productionItems=items.map(i=>{const pr=productsList.find(p=>String(p.id)===String(i.productId)); return {productId:i.productId,sets:i.sets,product:pr||null};});
+        const {error:updateError}=await supabaseClient.from("productions").update({batch_code:safeValue("edit-prod-code"),print_code:safeValue("edit-prod-code"),code:safeValue("edit-prod-code"),items:productionItems,costs,total_sets:totalSets,total_pcs:Math.round(totalPcs),total_cost:totalCost,avg_cost_per_set:costPerSet,cost_per_set:costPerSet,date:safeValue("edit-prod-date")}).eq("id",p.id);
+        if(updateError) throw updateError;
+        const oldRows=productHouseStock.filter(s=>String(s.production_id)===String(p.id));
+        const allPids=new Set([...Object.keys(oldProduced),...items.map(i=>String(i.productId))]);
+        for(const pid of allPids){
+            const pr=productsList.find(x=>String(x.id)===String(pid));
+            const desired=Math.max(0,num(newMap[pid])-num(sold[pid]));
+            const matching=oldRows.filter(s=>String(s.product_id)===String(pid));
+            const pcs=Math.round(desired*num(pr?.pcs_set));
+            if(desired<=0){ for(const r of matching) await supabaseClient.from("stock").delete().eq("id",r.id); }
+            else if(matching.length){
+                const first=matching[0];
+                const {error:e}=await supabaseClient.from("stock").update({print_code:safeValue("edit-prod-code"),type:pr?.type||first.type,sets:desired,pcs,cost_per_set:costPerSet,date:safeValue("edit-prod-date")}).eq("id",first.id); if(e) throw e;
+                for(const r of matching.slice(1)) await supabaseClient.from("stock").delete().eq("id",r.id);
+            } else {
+                const {error:e}=await supabaseClient.from("stock").insert({print_code:safeValue("edit-prod-code"),product_id:pid,type:pr?.type||"",sets:desired,pcs,cost_per_set:costPerSet,production_id:p.id,date:safeValue("edit-prod-date")}); if(e) throw e;
+            }
+        }
+        await Promise.all([fetchProductionFromSupabase(),fetchStockFromSupabase()]);
+        renderProductionHistory(); renderProdSummary(); renderProductHouse(); updateDashboard();
+        closeModalSafe("edit-production-modal");
+        alert("Production updated successfully.");
+    } catch(e){ console.error(e); alert("Production edit failed:\n"+e.message); }
+}
+
+function renderProdSummary() {
+    const filter=safeValue("prod-summary-filter","all"); const now=new Date();
+    const rows=productionHistory.filter(p=>{
+        if(filter==='all') return true; const d=new Date(p.date||p.created_at); if(Number.isNaN(d.getTime())) return false;
+        if(filter==='today') return d.toISOString().slice(0,10)===todayDate();
+        if(filter==='month') return d.getFullYear()===now.getFullYear() && d.getMonth()===now.getMonth();
+        if(filter==='year') return d.getFullYear()===now.getFullYear(); return true;
+    });
+    const totalPcs=rows.reduce((s,p)=>s+num(p.total_pcs),0), totalSets=rows.reduce((s,p)=>s+num(p.total_sets),0);
+    const keys=["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
+    const totals=Object.fromEntries(keys.map(k=>[k,rows.reduce((s,p)=>s+num(p.costs?.[k]),0)]));
+    const totalCost=rows.reduce((s,p)=>s+num(p.total_cost),0);
+    safeText("prod-summary-total-pcs",totalPcs); safeText("prod-summary-total-sets",totalSets);
+    const box=$("all-time-cost-breakdown"); if(!box) return;
+    box.innerHTML=`<div class="flex flex-wrap justify-between items-center gap-3 mb-4"><h3 class="font-bold text-lg">Cost Summary — ${filter==='all'?'All Time':filter}</h3><div class="text-xl font-bold">Total: ৳${money(totalCost)}</div></div><div class="grid grid-cols-2 md:grid-cols-5 gap-3">${keys.map(k=>`<div class="rounded-xl border p-3 bg-slate-50"><div class="text-xs text-slate-500 uppercase">${k}</div><div class="font-bold text-lg">৳${money(totals[k])}</div></div>`).join("")}</div>`;
+}
+
+function filterProductionHistory() {
+    const query = safeValue("search-prod-input").trim().toLowerCase();
+    const body = $("production-history-body");
+    if (!body) return;
+    const filtered = productionHistory.filter(p => String(p.print_code || p.batch_code || "").toLowerCase().includes(query));
+    if (!filtered.length) {
+        body.innerHTML = `<tr><td colspan="17" class="p-3">No matching production</td></tr>`;
+        return;
+    }
+    const costKeys = ["sticker","board","poly","tape","transport","fixed","ads","cutting","packing"];
+    body.innerHTML = filtered.map((p,index) => {
+        const c=p.costs||{};
+        const madeSets = Array.isArray(p.items) ? p.items.map(item => { const code = item.product?.code || item.product?.print_code || item.code || item.print_code || "-"; return `${escapeHtml(code)}: ${num(item.sets)} set`; }).join("<br>") : "-";
+        return `<tr><td class="p-3">${index+1}</td><td class="p-3">${escapeHtml(p.date||"-")}</td><td class="p-3">${escapeHtml(p.print_code||p.batch_code||"-")}</td><td class="p-3">${madeSets}</td><td class="p-3">${num(p.total_sets)}</td><td class="p-3">${num(p.total_pcs)}</td>${costKeys.map(k=>`<td class="p-3">৳${money(c[k])}</td>`).join("")}<td class="p-3 font-bold">৳${money(p.total_cost)}</td><td class="p-3">৳${money(p.cost_per_set)}</td></tr>`;
+    }).join("");
+}
+
+
+/* =========================================================
+   STOCK / PRODUCT HOUSE
+   ========================================================= */
+
+async function fetchStockFromSupabase() {
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("stock")
+        .select("*")
+        .order("id", {
+            ascending: false
+        });
+
+    if (error) {
+        throw error;
+    }
+
+    productHouseStock = data || [];
+}
+
+
+function renderProductHouse() {
+    const body=$("product-house-body"); if(!body) return;
+    const totalPcs=productHouseStock.reduce((sum,s)=>sum+num(s.pcs),0);
+    const totalSets=productHouseStock.reduce((sum,s)=>sum+num(s.sets),0);
+    safeText("house-total-pcs",totalPcs); safeText("house-total-sets",totalSets);
+    safeText("house-stock-value",money(productHouseStock.reduce((sum,s)=>sum+num(s.sets)*num(s.cost_per_set),0)));
+    safeText("house-batch-count",productHouseStock.length);
+    renderHouseTypeBreakdown();
+    renderEnhancedDashboard();
+    if(!productHouseStock.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No stock available yet. Save a production record to add stock.</td></tr>`; return;}
+    renderProductHouseRows(productHouseStock);
+}
+
+function renderHouseTypeBreakdown() {
+    const box = $("house-type-breakdown"); if (!box) return;
+    const totals = new Map();
+    productsList.forEach(p => { const type = p.type || "Unknown"; const row = totals.get(type) || { sets: 0, pieces: 0, codes: new Set() }; row.codes.add(p.code || "-"); totals.set(type, row); });
+    productHouseStock.forEach(s => {
+        const p = productsList.find(x => String(x.id) === String(s.product_id));
+        const type = p?.type || s.type || "Unknown";
+        const row = totals.get(type) || { sets: 0, pieces: 0, codes: new Set() };
+        row.sets += num(s.sets); row.pieces += num(s.pcs); row.codes.add(p?.code || s.print_code || "-"); totals.set(type, row);
+    });
+    box.innerHTML = totals.size ? [...totals].sort((a,b) => b[1].sets-a[1].sets).map(([type,v]) => `<div class="card border-t-4 border-t-slate-700"><p class="muted">${escapeHtml(type)}</p><div class="stat-value">${v.sets} <span class="text-sm font-semibold">sets</span></div><div class="text-sm text-slate-600 mt-2">${v.pieces} pieces</div><div class="muted mt-1">${v.codes.size} product code(s)</div></div>`).join("") : `<div class="card muted">Add products and save production to see type-wise stock.</div>`;
+}
+function renderProductHouseRows(rows){
+    const body=$("product-house-body"); if(!body)return;
+    if(!rows.length){body.innerHTML=`<tr><td colspan="7" class="p-3">No matching stock</td></tr>`;return;}
+    body.innerHTML=rows.map(s=>{
+        const pr=productsList.find(p=>String(p.id)===String(s.product_id));
+        const code=pr?.code||s.code||s.print_code||"-";
+        const type=pr?.type||s.type||"-";
+        return `<tr>
+            <td>${escapeHtml(code)}</td><td>${escapeHtml(type)}</td><td>${num(s.sets)}</td><td>${num(s.pcs)}</td><td>${money(s.cost_per_set)}</td><td>${s.date||"-"}</td>
+            <td><button type="button" class="btn btn-primary mr-1" onclick="openProductHouseEdit(${s.id})">Edit</button><button type="button" class="btn btn-danger" onclick="openModal('destroy-modal'); setDestroyStockById(${s.id})">Destroy</button></td>
+        </tr>`;
+    }).join("");
+}
+
+function filterProductHouse(){
+    const query=safeValue("search-house-input").trim().toLowerCase();
+    renderProductHouseRows(productHouseStock.filter(s=>`${s.print_code||""} ${s.type||""} ${productsList.find(p=>String(p.id)===String(s.product_id))?.code||""} ${productsList.find(p=>String(p.id)===String(s.product_id))?.type||""}`.toLowerCase().includes(query)));
+}
+
+function openProductHouseEdit(id){
+    const s=productHouseStock.find(x=>String(x.id)===String(id)); if(!s)return;
+    const pr=productsList.find(p=>String(p.id)===String(s.product_id));
+    $("edit-house-id").value=s.id;
+    $("edit-house-code").value=pr?.code||s.print_code||"";
+    $("edit-house-type").value=pr?.type||s.type||"";
+    $("edit-house-sets").value=num(s.sets);
+    $("edit-house-pcs").value=num(s.pcs);
+    $("edit-house-cost").value=num(s.cost_per_set);
+    openModal("edit-product-house-modal");
+}
+
+async function saveProductHouseEdit(event){
+    if(event)event.preventDefault();
+    const id=safeValue("edit-house-id"); const s=productHouseStock.find(x=>String(x.id)===String(id)); if(!s)return;
+    const sets=num(safeValue("edit-house-sets")); const pcs=num(safeValue("edit-house-pcs")); const cost=num(safeValue("edit-house-cost"));
+    if(sets<0||pcs<0){alert("Enter valid quantity.");return;}
+    try{
+        const {error}=await supabaseClient.from("stock").update({sets,pcs,cost_per_set:cost}).eq("id",s.id); if(error)throw error;
+        await fetchStockFromSupabase(); renderProductHouse(); updateDashboard(); closeModalSafe("edit-product-house-modal"); alert("Product House updated successfully.");
+    }catch(e){console.error(e);alert("Product House edit failed\n"+e.message);}
+}
+
+function setDestroyStock(index) {
+
+    const stock =
+        productHouseStock[index];
+
+    if (!stock) return;
+
+    const codeInput =
+        $("destroy-print-code");
+
+    if (codeInput) {
+        codeInput.value =
+            stock.print_code || "";
+        codeInput.dataset.stockId =
+            stock.id;
+    }
+
+    const setsInput =
+        $("destroy-sets");
+
+    if (setsInput) {
+        setsInput.max =
+            num(stock.sets);
+        setsInput.value = "";
+    }
+}
+
+
+function setDestroyStockById(id) {
+
+    const stock =
+        productHouseStock.find(
+            s =>
+                String(s.id) ===
+                String(id)
+        );
+
+    if (!stock) return;
+
+    const codeInput =
+        $("destroy-print-code");
+
+    if (codeInput) {
+        codeInput.value =
+            stock.print_code || "";
+        codeInput.dataset.stockId =
+            stock.id;
+    }
+
+    const setsInput =
+        $("destroy-sets");
+
+    if (setsInput) {
+        setsInput.max =
+            num(stock.sets);
+        setsInput.value = "";
+    }
+}
+
+
+async function saveDestroy(event) {
+
+    if (event) {
+        event.preventDefault();
+    }
+
+    const codeInput =
+        $("destroy-print-code");
+
+    const stockId =
+        codeInput?.dataset.stockId;
+
+    const destroySets =
+        num(
+            safeValue("destroy-sets")
+        );
+
+    const reason =
+        safeValue("destroy-reason")
+            .trim();
+
+    if (!stockId) {
+        alert("Select stock first.");
+        return;
+    }
+
+    if (destroySets <= 0) {
+        alert("Enter valid destroy quantity.");
+        return;
+    }
+
+    const stock =
+        productHouseStock.find(
+            s =>
+                String(s.id) ===
+                String(stockId)
+        );
+
+    if (!stock) {
+        alert("Stock not found.");
+        return;
+    }
+
+    if (destroySets > num(stock.sets)) {
+        alert("Destroy quantity is greater than stock.");
+        return;
+    }
+
+    try {
+
+        const remainingSets =
+            num(stock.sets) -
+            destroySets;
+
+        const pcsPerSet =
+            num(stock.pcs) /
+            Math.max(num(stock.sets), 1);
+
+        const remainingPcs =
+            Math.round(
+                remainingSets *
+                pcsPerSet
+            );
+
+        let error = null;
+
+        if (remainingSets <= 0) {
+
+            const response =
+                await supabaseClient
+                    .from("stock")
+                    .delete()
+                    .eq("id", stock.id);
+
+            error = response.error;
+
+        } else {
+
+            const response =
+                await supabaseClient
+                    .from("stock")
+                    .update({
+                        sets: remainingSets,
+                        pcs: remainingPcs
+                    })
+                    .eq("id", stock.id);
+
+            error = response.error;
+        }
+
+        if (error) {
+            throw error;
+        }
+
+        await fetchStockFromSupabase();
+
+        renderProductHouse();
+        updateDashboard();
+
+        closeModalSafe("destroy-modal");
+
+        const form =
+            $("destroy-form");
+
+        if (form) {
+            form.reset();
+        }
+
+        alert(
+            `Stock destroyed successfully.\nReason: ${reason || "Not specified"}`
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Destroy stock error:",
+            error
+        );
+
+        alert(
+            "Could not destroy stock:\n" +
+            error.message
+        );
+    }
+}
+
+
+/* =========================================================
+   SALES
+   ========================================================= */
+
+async function fetchSalesFromSupabase() {
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("sales")
+        .select("*")
+        .order("id", {
+            ascending: false
+        });
+
+    if (error) {
+        throw error;
+    }
+
+    saleHistory = data || [];
+}
+
+
+function prepareSaleForm() {
+
+    const container =
+        $("sale-items-container");
+
+    if (!container) return;
+
+    if (!container.children.length) {
+        addSaleItemRow();
+    }
+
+    const date =
+        $("sale-date");
+
+    if (date && !date.value) {
+        date.value = todayDate();
+    }
+
+    calcSaleProfit();
+}
+
+
+/* =========================================================
+   IMPORTANT:
+   Sale stock options now store REAL stock ID.
+   This fixes the old filtered-array index bug.
+   ========================================================= */
+
+function addSaleItemRow() {
+    const container = $("sale-items-container");
+    if (!container) return;
+
+    const availableStock = productHouseStock.filter(s => num(s.sets) > 0);
+    const row = document.createElement("div");
+    row.className = "sale-item-row";
+    row.innerHTML = `
+        <div class="sale-item-fields">
+            <div>
+                <label class="form-label">Product / Stock</label>
+                <input type="search" class="form-input mb-2 sale-stock-search" placeholder="Search code/type..." oninput="filterProductOptions(this, 'sale-stock-select')">
+                <select class="form-input sale-stock-select" onchange="calcSaleProfit()">
+                    <option value="">Select product</option>
+                    ${availableStock.map(stock => {
+                        const product = productsList.find(p => String(p.id) === String(stock.product_id));
+                        return `<option value="${escapeHtml(stock.id)}">${escapeHtml(product?.code || stock.print_code || "-")} - ${escapeHtml(product?.type || stock.type || "-")} (${num(stock.sets)} sets)</option>`;
+                    }).join("")}
+                </select>
+            </div>
+            <div>
+                <label class="form-label">Sets to Sell</label>
+                <input type="number" class="form-input sale-sets" min="1" value="1" placeholder="Sets" oninput="calcSaleProfit()">
+            </div>
+            <div>
+                <label class="form-label">Sell Price / Set (৳)</label>
+                <input type="number" class="form-input sale-price-per-set" min="0" step="0.01" value="0" placeholder="Sell price / set" oninput="calcSaleProfit()">
+            </div>
+            <div>
+                <label class="form-label">Seller Income / Set for This Product (৳)</label>
+                <input type="number" class="form-input sale-seller-per-set" min="0" step="0.01" value="0" placeholder="Seller income" oninput="calcSaleProfit()">
+            </div>
+            <div>
+                <label class="form-label">Manager Income / Set for This Product (৳)</label>
+                <input type="number" class="form-input sale-manager-per-set" min="0" step="0.01" value="0" placeholder="Manager income" oninput="calcSaleProfit()">
+            </div>
+            <div class="flex items-end">
+                <button type="button" class="btn btn-danger w-full" onclick="this.closest('.sale-item-row').remove(); calcSaleProfit();">Remove</button>
+            </div>
+        </div>
+        <div class="sale-line-summary">
+            <div><p class="muted text-xs">Available Stock</p><strong class="sale-available-sets">Select product</strong></div>
+            <div><p class="muted text-xs">Sale Quantity</p><strong class="sale-line-sets">1 set</strong></div>
+            <div><p class="muted text-xs">Price × Sets</p><strong class="sale-line-total">৳0.00</strong></div>
+            <div><p class="muted text-xs">Seller / Manager</p><strong class="sale-line-payouts">৳0 / ৳0</strong></div>
+        </div>
+    `;
+    container.appendChild(row);
+    calcSaleProfit();
+}
+
+function calcSaleProfit() {
+
+    let totalSets = 0;
+    let totalCost = 0;
+    let totalSale = 0;
+    let sellerProfit = 0;
+    let managerProfit = 0;
+    let totalPcs = 0;
+
+    let displayedSellerRate = 0;
+    let displayedManagerRate = 0;
+
+    document.querySelectorAll(".sale-item-row").forEach(row => {
+        const stockId = row.querySelector(".sale-stock-select")?.value;
+        const sets = num(row.querySelector(".sale-sets")?.value);
+        const salePrice = num(row.querySelector(".sale-price-per-set")?.value);
+        const sellerPerSet = num(row.querySelector(".sale-seller-per-set")?.value);
+        const managerPerSet = num(row.querySelector(".sale-manager-per-set")?.value);
+        const stock = productHouseStock.find(s => String(s.id) === String(stockId));
+
+        totalSets += sets;
+        totalSale += sets * salePrice;
+        sellerProfit += sets * sellerPerSet;
+        managerProfit += sets * managerPerSet;
+        displayedSellerRate += sellerPerSet;
+        displayedManagerRate += managerPerSet;
+
+        if (stock) {
+            totalCost += sets * num(stock.cost_per_set);
+            totalPcs += sets * (num(stock.pcs) / Math.max(num(stock.sets), 1));
+        }
+
+        const availableEl = row.querySelector(".sale-available-sets");
+        const setsEl = row.querySelector(".sale-line-sets");
+        const totalEl = row.querySelector(".sale-line-total");
+        const payoutsEl = row.querySelector(".sale-line-payouts");
+        if (availableEl) availableEl.textContent = stock ? `${num(stock.sets)} sets in stock` : "Select product";
+        if (setsEl) setsEl.textContent = `${sets} ${sets === 1 ? "set" : "sets"}`;
+        if (totalEl) totalEl.textContent = `৳${money(sets * salePrice)}`;
+        if (payoutsEl) payoutsEl.textContent = `Seller ৳${money(sets * sellerPerSet)} · Manager ৳${money(sets * managerPerSet)}`;
+    });
+
+    const grossProfit = totalSale - totalCost - sellerProfit - managerProfit;
+    const investorProfit = Math.max(0, grossProfit * 0.10);
+    const adminProfit = Math.max(0, grossProfit * 0.90);
+
+    safeText("sale-lbl-total-sets", totalSets);
+    safeText("sale-lbl-total-pcs", Math.round(totalPcs));
+    safeText("sale-lbl-cost", money(totalCost));
+    safeText("sale-lbl-total-sale", money(totalSale));
+    safeText("sale-lbl-gross-profit", money(grossProfit));
+    safeText("sale-lbl-seller-profit", money(sellerProfit));
+    safeText("sale-lbl-manager-profit", money(managerProfit));
+    safeText("sale-lbl-investor-profit", money(investorProfit));
+    safeText("sale-lbl-admin-profit", money(adminProfit));
+    safeText("sale-top-seller-rate", money(displayedSellerRate));
+    safeText("sale-top-manager-rate", money(displayedManagerRate));
+    safeText("sale-top-seller-total", money(sellerProfit));
+    safeText("sale-top-manager-total", money(managerProfit));
+
+    return { totalSets, totalPcs: Math.round(totalPcs), totalCost, totalSale, grossProfit, sellerProfit, managerProfit, investorProfit, adminProfit };
+}
+
+async function saveSale(event) {
+
+    if (event) {
+        event.preventDefault();
+    }
+
+    const form =
+        $("sale-form");
+
+    const rows =
+        Array.from(
+            document.querySelectorAll(
+                ".sale-item-row"
+            )
+        );
+
+    if (!rows.length) {
+        alert("Add at least one sale item.");
+        return;
+    }
+
+    const items = [];
+
+    for (const row of rows) {
+
+        const stockId =
+            row.querySelector(
+                ".sale-stock-select"
+            )?.value;
+
+        const sets =
+            num(
+                row.querySelector(
+                    ".sale-sets"
+                )?.value
+            );
+
+        const salePrice = num(row.querySelector(".sale-price-per-set")?.value);
+        const sellerPerSet = num(row.querySelector(".sale-seller-per-set")?.value);
+        const managerPerSet = num(row.querySelector(".sale-manager-per-set")?.value);
+
+        if (!stockId || sets <= 0) {
+            alert(
+                "Please select stock and valid sets."
+            );
+            return;
+        }
+
+        const stock =
+            productHouseStock.find(
+                s =>
+                    String(s.id) ===
+                    String(stockId)
+            );
+
+        if (!stock) {
+            alert("Selected stock not found.");
+            return;
+        }
+
+        if (sets > num(stock.sets)) {
+            alert(
+                `Not enough stock for ${stock.print_code}.`
+            );
+            return;
+        }
+
+        items.push({
+            stock,
+            stockId,
+            sets,
+            salePrice,
+            sellerPerSet,
+            managerPerSet
+        });
+    }
+
+
+    /* Check duplicate stock selection */
+
+    const stockCounts = {};
+
+    items.forEach(item => {
+
+        if (!stockCounts[item.stockId]) {
+            stockCounts[item.stockId] = 0;
+        }
+
+        stockCounts[item.stockId] +=
+            item.sets;
+    });
+
+    for (const stockId in stockCounts) {
+
+        const stock =
+            productHouseStock.find(
+                s =>
+                    String(s.id) ===
+                    String(stockId)
+            );
+
+        if (
+            stock &&
+            stockCounts[stockId] >
+            num(stock.sets)
+        ) {
+            alert(
+                `Total sale quantity exceeds stock for ${stock.print_code}.`
+            );
+            return;
+        }
+    }
+
+
+    const calculation =
+        calcSaleProfit();
+
+    const {
+        totalSets,
+        totalCost,
+        totalSale,
+        grossProfit,
+        sellerProfit,
+        managerProfit,
+        investorProfit,
+        adminProfit
+    } = calculation;
+
+
+    const sellerRate = items.reduce((sum, item) => sum + item.sellerPerSet * item.sets, 0);
+    const managerRate = items.reduce((sum, item) => sum + item.managerPerSet * item.sets, 0);
+
+    const storeId =
+        safeValue("sale-store-id");
+
+    const sellerId = safeValue("sale-seller-id");
+    const selectedSeller = sellerList.find(s => String(s.id) === String(sellerId));
+    const sellerName = selectedSeller?.name || "";
+    if (!selectedSeller) { alert("Please select a seller before saving the sale."); return; }
+
+    const saleDate =
+        safeValue(
+            "sale-date",
+            todayDate()
+        );
+
+    const button =
+        form?.querySelector(
+            'button[type="submit"]'
+        );
+
+    setButtonLoading(
+        button,
+        true
+    );
+
+
+    try {
+
+        /* FIRST: sale record */
+
+        const {
+            data: sale,
+            error: saleError
+        } = await supabaseClient
+            .from("sales")
+            .insert({
+                user_id: currentUserId(),
+                store_id:
+                    storeId || null,
+
+                seller_rate:
+                    sellerRate,
+
+                manager_rate:
+                    managerRate,
+
+                total_sets:
+                    totalSets,
+                total_pcs:
+                    items.reduce((sum, item) => sum + item.sets * (num(item.stock.pcs) / Math.max(num(item.stock.sets), 1)), 0),
+                items: items.map(item => ({
+                    stock_id: item.stockId,
+                    product_id: item.stock.product_id,
+                    product_code: (productsList.find(p => String(p.id) === String(item.stock.product_id))?.code) || item.stock.print_code || "-",
+                    type: (productsList.find(p => String(p.id) === String(item.stock.product_id))?.type) || item.stock.type || "-",
+                    sets: item.sets,
+                    pcs_per_set: num(item.stock.pcs) / Math.max(num(item.stock.sets), 1),
+                    cost_per_set: num(item.stock.cost_per_set),
+                    production_id: item.stock.production_id || null,
+                    store_id: storeId || null,
+                    sale_price_per_set: item.salePrice,
+                    seller_per_set: item.sellerPerSet,
+                    manager_per_set: item.managerPerSet
+                })),
+
+                total_cost:
+                    totalCost,
+
+                total_sale:
+                    totalSale,
+
+                gross_profit:
+                    grossProfit,
+
+                seller_profit:
+                    sellerProfit,
+
+                manager_profit:
+                    managerProfit,
+
+                investor_profit:
+                    investorProfit,
+
+                admin_profit:
+                    adminProfit,
+
+                date:
+                    saleDate,
+
+                seller_name: sellerName,
+                seller_id: sellerId || null
+            })
+            .select()
+            .single();
+
+        if (saleError) {
+            throw saleError;
+        }
+
+
+        /* SECOND: update each stock row */
+
+        const updatedStockRows = [];
+
+        for (const item of items) {
+
+            const stock =
+                productHouseStock.find(
+                    s =>
+                        String(s.id) ===
+                        String(item.stockId)
+                );
+
+            if (!stock) {
+                throw new Error(
+                    "Stock disappeared during sale."
+                );
+            }
+
+            const remainingSets =
+                num(stock.sets) -
+                item.sets;
+
+            const pcsPerSet =
+                num(stock.pcs) /
+                Math.max(
+                    num(stock.sets),
+                    1
+                );
+
+            const remainingPcs =
+                Math.round(
+                    remainingSets *
+                    pcsPerSet
+                );
+
+            updatedStockRows.push({
+                id: stock.id,
+                sets: remainingSets,
+                pcs: remainingPcs
+            });
+        }
+
+
+        /* Update stock */
+
+        for (
+            const update
+            of updatedStockRows
+        ) {
+
+            let response;
+
+            if (update.sets <= 0) {
+
+                response =
+                    await supabaseClient
+                        .from("stock")
+                        .delete()
+                        .eq(
+                            "id",
+                            update.id
+                        );
+
+            } else {
+
+                response =
+                    await supabaseClient
+                        .from("stock")
+                        .update({
+                            sets: update.sets,
+                            pcs: update.pcs
+                        })
+                        .eq(
+                            "id",
+                            update.id
+                        );
+            }
+
+            if (response.error) {
+
+                /*
+                    Sale already exists here.
+                    We cannot safely rollback
+                    arbitrary stock changes automatically.
+                */
+
+                throw new Error(
+                    "Sale saved, but stock update failed: " +
+                    response.error.message
+                );
+            }
+        }
+
+
+        /* Add exactly one Balance entry for revenue and one for each role. */
+        const saleCode = items.map(item =>
+            (productsList.find(p => String(p.id) === String(item.stock.product_id))?.code) || item.stock.print_code || "-"
+        ).filter(Boolean).join(", ");
+
+        const saleLedgerRows = [
+            { title: `Sale Revenue${saleCode ? ` - ${saleCode}` : ""}`, amount: totalSale, note: `auto_sale_revenue:${sale.id}` },
+            { title: "Seller Income", amount: sellerProfit, note: `auto_sale_role:seller:${sale.id}` },
+            { title: "Manager Income", amount: managerProfit, note: `auto_sale_role:manager:${sale.id}` },
+            { title: "Investor Income", amount: investorProfit, note: `auto_sale_role:investor:${sale.id}` },
+            { title: "Admin Income", amount: adminProfit, note: `auto_sale_role:admin:${sale.id}` }
+        ].filter(row => num(row.amount) > 0).map(row => ({
+            user_id: currentUserId(), date: saleDate, type: "Income", title: row.title, amount: num(row.amount), note: row.note
+        }));
+
+        if (saleLedgerRows.length) {
+            const { error: ledgerError } = await supabaseClient.from("ledger").insert(saleLedgerRows);
+            if (ledgerError) throw new Error("Sale saved, but Balance income could not be added: " + ledgerError.message);
+        }
+
+        // Add this sale's seller commission to the selected seller balance.
+        if (selectedSeller && sellerProfit > 0) {
+            const { error: sellerBalanceError } = await supabaseClient.from("sellers")
+                .update({ balance: num(selectedSeller.balance) + sellerProfit })
+                .eq("id", selectedSeller.id).eq("user_id", currentUserId());
+            if (sellerBalanceError) throw new Error("Sale saved, but seller balance could not be updated: " + sellerBalanceError.message);
+        }
+
+        await Promise.all([
+            fetchSellersFromSupabase(),
+            fetchSalesFromSupabase(),
+            fetchStockFromSupabase(),
+            fetchLedgerFromSupabase()
+        ]);
+
+        renderSaleHistory();
+        renderSaleSummary();
+        renderProductHouse();
+        updateDashboard();
+
+        if (form) {
+            form.reset();
+        }
+
+        const container =
+            $("sale-items-container");
+
+        if (container) {
+            container.innerHTML = "";
+        }
+
+        prepareSaleForm();
+
+        alert(
+            "Sale saved successfully."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Sale save error:",
+            error
+        );
+
+        alert(
+            "Sale process failed:\n" +
+            error.message
+        );
+
+    } finally {
+
+        setButtonLoading(
+            button,
+            false,
+            "Save Sale"
+        );
+    }
+}
+
+
+function getSaleStoreName(s) {
+    const store = storeList.find(x => String(x.id) === String(s.store_id));
+    return store?.name || s.store_name || s.store_id || "-";
+}
+
+function getSaleItems(s) {
+    if (Array.isArray(s.items)) return s.items;
+    if (typeof s.items === "string") { try { const v = JSON.parse(s.items); return Array.isArray(v) ? v : []; } catch (_) {} }
+    return [];
+}
+
+function getSaleCodes(s) {
+    const items = getSaleItems(s);
+    const codes = items.map(i => i.product_code || i.code || "").filter(Boolean);
+    return [...new Set(codes)].join(", ") || s.product_code || "-";
+}
+
+function getSalePieces(s) {
+    if (num(s.total_pcs)) return num(s.total_pcs);
+    return getSaleItems(s).reduce((sum, i) => {
+        const productId = i.product_id || i.productId || i.product?.id;
+        const product = productsList.find(p => String(p.id) === String(productId));
+        const piecesPerSet = i.pcs_per_set || i.pcsSet || i.pcs_set || i.product?.pcs_set || product?.pcs_set || 0;
+        return sum + num(i.sets) * num(piecesPerSet);
+    }, 0);
+}
+
+function renderSaleSummary() {
+    safeText("sale-summary-total-sets", saleHistory.reduce((sum,s) => sum + (num(s.total_sets) || getSaleItems(s).reduce((n,item) => n + num(item.sets), 0)), 0));
+    safeText("sale-summary-total-pcs", saleHistory.reduce((sum,s) => sum + getSalePieces(s), 0));
+    safeText("sale-summary-total-sale", money(saleHistory.reduce((sum,s) => sum + num(s.total_sale), 0)));
+}
+
+function renderSaleHistory(rows = saleHistory) {
+    const body=$("sale-history-body"); if(!body)return;
+    if(!rows.length){body.innerHTML=`<tr><td colspan="14" class="p-3">No sales yet</td></tr>`;return;}
+    body.innerHTML=rows.map(s=>`<tr>
+        <td>${s.date||"-"}</td><td>${escapeHtml(getSaleCodes(s))}</td><td>${escapeHtml(s.seller_name||"-")}</td><td>${escapeHtml(getSaleStoreName(s))}</td>
+        <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${money(s.seller_profit)}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
+        <td><button type="button" class="btn btn-danger" ${num(s.total_sets)<=0?'disabled':''} onclick="openSaleReturn(${s.id})">Return</button></td>
+    </tr>`).join("");
+}
+
+function openSaleReturn(id){
+    const sale=saleHistory.find(x=>String(x.id)===String(id)); if(!sale)return;
+    const items=getSaleItems(sale);
+    $("return-sale-id").value=sale.id;
+    $("return-sale-title").textContent=`Sale #${sale.id} — ${sale.date||""}`;
+    const box=$("sale-return-items");
+    box.innerHTML=items.map((item,i)=>{
+        const sets=num(item.sets);
+        const code=item.product_code||item.code||item.print_code||"-";
+        return `<div class="border rounded-lg p-3 grid grid-cols-1 md:grid-cols-4 gap-3 items-center">
+            <div><div class="font-semibold">${escapeHtml(code)}</div><div class="text-xs text-slate-500">Sold: ${sets} set</div></div>
+            <div class="text-sm">৳${money(item.sale_price_per_set||0)} / set</div>
+            <div class="text-sm">Return quantity</div>
+            <input type="number" min="0" max="${sets}" value="0" class="form-input return-item-sets" data-index="${i}">
+        </div>`;
+    }).join("");
+    openModal("sale-return-modal");
+}
+
+async function saveSaleReturn(event){
+    if(event)event.preventDefault();
+    const saleId=safeValue("return-sale-id"); const sale=saleHistory.find(x=>String(x.id)===String(saleId)); if(!sale)return;
+    const items=getSaleItems(sale).map(i=>({...i}));
+    const inputs=Array.from(document.querySelectorAll(".return-item-sets"));
+    let returnSets=0, returnPcs=0, returnSale=0, returnCost=0, returnSeller=0, returnManager=0;
+    const changes=[];
+    inputs.forEach(input=>{const idx=num(input.dataset.index); const q=num(input.value); if(q<=0)return; const item=items[idx]; const available=num(item.sets); if(q>available)throw new Error(`Return quantity exceeds sold quantity for ${item.product_code||item.code||"product"}.`); const pcsPerSet=num(item.pcs_per_set) || num(productsList.find(p=>String(p.id)===String(item.product_id))?.pcs_set); const costPerSet=num(item.cost_per_set) || (num(sale.total_sets)?num(sale.total_cost)/num(sale.total_sets):0); const sp=num(item.sale_price_per_set); const seller=num(item.seller_per_set); const manager=num(item.manager_per_set); returnSets+=q; returnPcs+=q*pcsPerSet; returnSale+=q*sp; returnCost+=q*costPerSet; returnSeller+=q*seller; returnManager+=q*manager; changes.push({idx,q,costPerSet,pcsPerSet});});
+    if(!returnSets){alert("Select at least one set to return.");return;}
+    const returnGross=returnSale-returnCost-returnSeller-returnManager;
+    const returnInvestor=Math.max(0,returnGross*0.10); const returnAdmin=Math.max(0,returnGross*0.90);
+    try{
+        for(const ch of changes){
+            const item=items[ch.idx]; item.sets=num(item.sets)-ch.q;
+            const productId=item.product_id; let stock=null;
+            if(item.stock_id) stock=productHouseStock.find(s=>String(s.id)===String(item.stock_id));
+            if(!stock) stock=productHouseStock.find(s=>String(s.product_id)===String(productId)&&String(s.print_code||"")===String(item.product_code||""));
+            if(stock){
+                const newSets=num(stock.sets)+ch.q; const newPcs=num(stock.pcs)+Math.round(ch.q*ch.pcsPerSet);
+                const {error}=await supabaseClient.from("stock").update({sets:newSets,pcs:newPcs}).eq("id",stock.id); if(error)throw error;
+            }else{
+                const {error}=await supabaseClient.from("stock").insert({print_code:item.product_code||"",product_id:productId,type:item.type||"",sets:ch.q,pcs:Math.round(ch.q*ch.pcsPerSet),cost_per_set:ch.costPerSet,production_id:item.production_id||null,date:sale.date||todayDate()}); if(error)throw error;
+            }
+        }
+        const newTotalSets=Math.max(0,num(sale.total_sets)-returnSets); const newTotalPcs=Math.max(0,num(sale.total_pcs)-returnPcs); const newTotalCost=Math.max(0,num(sale.total_cost)-returnCost); const newTotalSale=Math.max(0,num(sale.total_sale)-returnSale); const newSeller=Math.max(0,num(sale.seller_profit)-returnSeller); const newManager=Math.max(0,num(sale.manager_profit)-returnManager); const newGross=newTotalSale-newTotalCost-newSeller-newManager; const newInvestor=Math.max(0,newGross*0.10); const newAdmin=Math.max(0,newGross*0.90);
+        const status=newTotalSets<=0?"Returned":"Partial";
+        const {error:updateError}=await supabaseClient.from("sales").update({items:items.filter(i=>num(i.sets)>0),total_sets:newTotalSets,total_pcs:Math.round(newTotalPcs),total_cost:newTotalCost,total_sale:newTotalSale,gross_profit:newGross,seller_profit:newSeller,manager_profit:newManager,investor_profit:newInvestor,admin_profit:newAdmin,return_status:status,returned_sets:num(sale.returned_sets)+returnSets,returned_pcs:num(sale.returned_pcs)+returnPcs,returned_at:new Date().toISOString()}).eq("id",sale.id); if(updateError)throw updateError;
+        const reverseRows=[
+            {title:"Sale Return",amount:-returnSale,note:`auto_sale_return:revenue:${sale.id}`},
+            {title:"Seller Return",amount:-returnSeller,note:`auto_sale_return:seller:${sale.id}`},
+            {title:"Manager Return",amount:-returnManager,note:`auto_sale_return:manager:${sale.id}`},
+            {title:"Investor Return",amount:-returnInvestor,note:`auto_sale_return:investor:${sale.id}`},
+            {title:"Admin Return",amount:-returnAdmin,note:`auto_sale_return:admin:${sale.id}`}
+        ].filter(x=>num(x.amount)!==0).map(x=>({user_id:currentUserId(),date:todayDate(),type:"Income",title:x.title,amount:x.amount,note:x.note}));
+        if(reverseRows.length){const {error}=await supabaseClient.from("ledger").insert(reverseRows);if(error)throw error;}
+        await Promise.all([fetchSalesFromSupabase(),fetchStockFromSupabase(),fetchLedgerFromSupabase()]); renderSaleHistory();renderSaleSummary();renderProductHouse();updateDashboard();closeModalSafe("sale-return-modal");alert(`${returnSets} set returned successfully.`);
+    }catch(e){console.error("Return sale error:",e);alert("Return failed:\n"+e.message);}
+}
+
+function filterSaleHistory() {
+    const query = safeValue("search-sale-input").trim().toLowerCase();
+    renderSaleHistory(saleHistory.filter(s => (`${getSaleCodes(s)} ${s.seller_name || ""} ${getSaleStoreName(s)} ${s.date || ""}`).toLowerCase().includes(query)));
+}
+
+/* =========================================================
+   LEDGER
+   ========================================================= */
+
+async function fetchLedgerFromSupabase() {
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("ledger")
+        .select("*")
+        .order("id", {
+            ascending: false
+        });
+
+    if (error) {
+        throw error;
+    }
+
+    generalLedger = data || [];
+}
+
+
+async function fetchWithdrawalsFromSupabase() {
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("withdrawals")
+        .select("*")
+        .order("id", {
+            ascending: false
+        });
+
+    if (error) {
+        throw error;
+    }
+
+    withdrawalHistory = data || [];
+}
+
+
+async function saveTransaction(event) {
+
+    if (event) {
+        event.preventDefault();
+    }
+
+    const date =
+        safeValue(
+            "trans-date",
+            todayDate()
+        );
+
+    const type =
+        safeValue(
+            "trans-type"
+        ).trim();
+
+    const title =
+        safeValue(
+            "trans-title"
+        ).trim();
+
+    const amount =
+        num(
+            safeValue(
+                "trans-amount"
+            )
+        );
+
+    const note =
+        safeValue(
+            "trans-note"
+        ).trim();
+
+    if (!type || !title || amount <= 0) {
+
+        alert(
+            "Type, title and valid amount are required."
+        );
+
+        return;
+    }
+
+    const form =
+        $("ledger-form");
+
+    const button =
+        form?.querySelector(
+            'button[type="submit"]'
+        );
+
+    setButtonLoading(
+        button,
+        true
+    );
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("ledger")
+            .insert({
+                user_id: currentUserId(),
+                date,
+                type,
+                title,
+                amount,
+                note
+            });
+
+        if (error) {
+            throw error;
+        }
+
+        await fetchLedgerFromSupabase();
+
+        renderLedger();
+        updateDashboard();
+
+        if (form) {
+            form.reset();
+        }
+
+        closeModalSafe(
+            "add-transaction-modal"
+        );
+
+        alert(
+            "Transaction saved successfully."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Transaction error:",
+            error
+        );
+
+        alert(
+            "Transaction save failed:\n" +
+            error.message
+        );
+
+    } finally {
+
+        setButtonLoading(
+            button,
+            false,
+            "Save Transaction"
+        );
+    }
+}
+
+
+async function saveRoleAmount(event) {
+    if (event) event.preventDefault();
+
+    const date = safeValue("amount-date", todayDate());
+    const role = safeValue("amount-role").trim().toLowerCase();
+    const recipient = safeValue("amount-recipient").trim();
+    const amount = num(safeValue("amount-value"));
+    const note = safeValue("amount-note").trim();
+
+    if (!["admin", "seller", "manager", "investor"].includes(role) || amount <= 0) {
+        alert("Select a role and enter a valid amount.");
+        return;
+    }
+    if ((role === "seller" || role === "manager") && !recipient) {
+        alert("Please enter the seller/manager name.");
+        return;
+    }
+
+    const form = $("role-amount-form");
+    const button = form?.querySelector('button[type="submit"]');
+    setButtonLoading(button, true, "Add Amount");
+
+    try {
+        const title = `${role.charAt(0).toUpperCase() + role.slice(1)} Income`;
+        const details = [
+            `manual_role_income:${role}`,
+            recipient ? `recipient:${recipient}` : "",
+            note ? note : ""
+        ].filter(Boolean).join(" | ");
+
+        const { error } = await supabaseClient.from("ledger").insert({
+            user_id: currentUserId(),
+            date,
+            type: "Income",
+            title,
+            amount,
+            note: details
+        });
+        if (error) throw error;
+
+        await fetchLedgerFromSupabase();
+        renderLedger();
+        updateDashboard();
+        if (form) form.reset();
+        const dateInput = $("amount-date");
+        if (dateInput) dateInput.value = todayDate();
+        handleAmountRoleChange();
+        closeModalSafe("add-role-amount-modal");
+        alert("Amount added successfully.");
+    } catch (error) {
+        console.error("Add role amount error:", error);
+        alert("Could not add amount:\n" + error.message);
+    } finally {
+        setButtonLoading(button, false, "Add Amount");
+    }
+}
+
+function handleAmountRoleChange() {
+    const role = safeValue("amount-role").toLowerCase();
+    const recipientWrap = $("amount-recipient-wrap");
+    const recipientInput = $("amount-recipient");
+    const needsRecipient = role === "seller" || role === "manager";
+    if (recipientWrap) recipientWrap.style.display = needsRecipient ? "block" : "none";
+    if (recipientInput) recipientInput.required = needsRecipient;
+}
+
+async function saveWithdrawal(event) {
+
+    if (event) {
+        event.preventDefault();
+    }
+
+    const date =
+        safeValue(
+            "with-date",
+            todayDate()
+        );
+
+    const role =
+        safeValue(
+            "with-role"
+        ).trim();
+
+    const selectedSellerId = safeValue("with-seller-id");
+    const selectedSeller = sellerList.find(s => String(s.id) === String(selectedSellerId));
+    const sellerName = role.toLowerCase() === "seller" ? (selectedSeller?.name || "") : safeValue("with-seller-name").trim();
+
+    const amount =
+        num(
+            safeValue(
+                "with-amount"
+            )
+        );
+
+    const note =
+        safeValue(
+            "with-note"
+        ).trim();
+
+    if (!role || amount <= 0) {
+
+        alert(
+            "Role and valid amount are required."
+        );
+
+        return;
+    }
+    if (role.toLowerCase() === "seller" && !selectedSeller) { alert("Please select a seller."); return; }
+    if (role.toLowerCase() === "seller" && selectedSeller && amount > num(selectedSeller.balance)) { alert(`Withdrawal exceeds ${selectedSeller.name}'s current balance (৳${money(selectedSeller.balance)}).`); return; }
+
+    const form =
+        $("withdrawal-form");
+
+    const button =
+        form?.querySelector(
+            'button[type="submit"]'
+        );
+
+    setButtonLoading(
+        button,
+        true
+    );
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("withdrawals")
+            .insert({
+                user_id: currentUserId(),
+                date,
+                role,
+                seller_name: sellerName,
+                seller_id: role.toLowerCase() === "seller" ? selectedSeller.id : null,
+                amount,
+                note
+            });
+
+        if (error) {
+            throw error;
+        }
+
+        if (role.toLowerCase() === "seller" && selectedSeller) {
+            const { error: balanceError } = await supabaseClient.from("sellers")
+                .update({ balance: num(selectedSeller.balance) - amount })
+                .eq("id", selectedSeller.id).eq("user_id", currentUserId());
+            if (balanceError) throw new Error("Withdrawal saved, but seller balance could not be updated: " + balanceError.message);
+        }
+        await fetchSellersFromSupabase();
+        await fetchWithdrawalsFromSupabase();
+
+        renderSellers();
+        renderLedger();
+        updateDashboard();
+
+        if (form) {
+            form.reset();
+        }
+
+        closeModalSafe(
+            "add-withdrawal-modal"
+        );
+
+        alert(
+            "Withdrawal saved successfully."
+        );
+
+    } catch (error) {
+
+        console.error(
+            "Withdrawal error:",
+            error
+        );
+
+        alert(
+            "Withdrawal save failed:\n" +
+            error.message
+        );
+
+    } finally {
+
+        setButtonLoading(
+            button,
+            false,
+            "Save Withdrawal"
+        );
+    }
+}
+
+
+function handleWithdrawRoleChange() {
+    const role = safeValue("with-role").toLowerCase();
+    const container = $("with-recipient-container");
+    const sellerSelectWrap = $("with-seller-select-wrap");
+    const sellerSelect = $("with-seller-id");
+    const recipientInput = $("with-seller-name");
+    const needsRecipient = role === "seller" || role === "manager";
+    if (container) container.style.display = role === "manager" ? "block" : "none";
+    if (sellerSelectWrap) sellerSelectWrap.style.display = role === "seller" ? "block" : "none";
+    if (recipientInput) recipientInput.required = role === "manager";
+    if (sellerSelect) sellerSelect.required = role === "seller";
+    populateSellerSelects();
+}
+
+function renderLedger() {
+
+    const body =
+        $("ledger-history-body");
+
+    if (!body) return;
+
+
+    /* totals */
+
+    let income = 0;
+    let expense = 0;
+
+    generalLedger.forEach(item => {
+
+        const type =
+            String(
+                item.type || ""
+            ).toLowerCase();
+
+        const note = String(item.note || "").toLowerCase();
+        if (type.includes("income")) {
+            // Role payouts (admin/manager/seller/investor) are allocations of profit,
+            // not business expenses. Withdrawals are counted separately below.
+            if (!note.includes("auto_sale_role:")) income += num(item.amount);
+        } else if (type.includes("expense")) {
+            expense += num(item.amount);
+        }
+    });
+
+
+    withdrawalHistory.forEach(w => {
+        expense += num(w.amount);
+    });
+
+
+    safeText(
+        "ledger-total-income",
+        money(income)
+    );
+
+    safeText(
+        "ledger-total-expense",
+        money(expense)
+    );
+
+    safeText(
+        "ledger-net-impact",
+        money(income - expense)
+    );
+
+
+    /* role totals: sales income minus withdrawals */
+    const roles = ["admin", "investor", "manager", "seller"];
+    roles.forEach(role => {
+        const roleIncome = generalLedger
+            .filter(item => {
+                const note = String(item.note || "").toLowerCase();
+                return String(item.type || "").toLowerCase() === "income" &&
+                    (note.includes(`auto_sale_role:${role}:`) || note.includes(`manual_role_income:${role}`));
+            })
+            .reduce((sum,item) => sum + num(item.amount), 0);
+        const withdrawn = withdrawalHistory
+            .filter(w => String(w.role || "").toLowerCase() === role)
+            .reduce((sum,w) => sum + num(w.amount), 0);
+        safeText(`ledger-${role}-tot`, money(roleIncome - withdrawn));
+    });
+
+    // Seller-by-seller all-time income, withdrawn total, and remaining payable.
+    const sellerTotals = new Map();
+    saleHistory.forEach(sale => {
+        const name = String(sale.seller_name || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
+        row.earned += num(sale.seller_profit);
+        sellerTotals.set(key, row);
+    });
+    generalLedger.filter(item => String(item.type || "").toLowerCase() === "income" &&
+        String(item.note || "").toLowerCase().includes("manual_role_income:seller")).forEach(item => {
+        const note = String(item.note || "");
+        const match = note.match(/recipient:([^|]+)/i);
+        const name = String(match?.[1] || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
+        row.earned += num(item.amount);
+        sellerTotals.set(key, row);
+    });
+    withdrawalHistory.filter(w => String(w.role || "").toLowerCase() === "seller").forEach(w => {
+        const name = String(w.seller_name || "").trim();
+        if (!name) return;
+        const key = name.toLowerCase();
+        const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
+        row.withdrawn += num(w.amount);
+        sellerTotals.set(key, row);
+    });
+    const sellerBody = $("seller-income-history-body");
+    if (sellerBody) {
+        const rows = [...sellerTotals.values()].sort((a,b) => a.name.localeCompare(b.name));
+        sellerBody.innerHTML = rows.length ? rows.map(row => `
+            <tr>
+                <td class="p-3 font-semibold">${escapeHtml(row.name)}</td>
+                <td class="p-3">${money(row.earned)}</td>
+                <td class="p-3">${money(row.withdrawn)}</td>
+                <td class="p-3 font-semibold">${money(row.earned-row.withdrawn)}</td>
+            </tr>`).join("") : `<tr><td class="p-3" colspan="4">No seller income history yet</td></tr>`;
+    }
+
+
+    const allRows = [
+        ...generalLedger.map(
+            item => ({
+                kind: "transaction",
+                ...item
+            })
+        ),
+        ...withdrawalHistory.map(
+            item => ({
+                kind: "withdrawal",
+                ...item
+            })
+        )
+    ];
+
+
+    const rowTimestamp = item => {
+        const raw = item.created_at || item.date || item.withdrawal_date || item.updated_at;
+        const parsed = raw ? new Date(raw).getTime() : NaN;
+        return Number.isFinite(parsed) ? parsed : Number(item.id || 0);
+    };
+    allRows.sort((a, b) => rowTimestamp(b) - rowTimestamp(a));
+
+
+    if (!allRows.length) {
+
+        body.innerHTML =
+            `<tr>
+                <td colspan="8">
+                    No ledger history
+                </td>
+            </tr>`;
+
+        return;
+    }
+
+
+    body.innerHTML =
+        allRows.map((item, index) => {
+
+            const isWithdrawal =
+                item.kind === "withdrawal";
+
+            return `
+                <tr>
+                    <td>${index + 1}</td>
+
+                    <td>
+                        ${isWithdrawal
+                            ? "Withdrawal"
+                            : escapeHtml(item.type || "-")}
+                    </td>
+
+                    <td>
+                        ${isWithdrawal
+                            ? escapeHtml(item.role || "-")
+                            : escapeHtml(item.title || "-")}
+                    </td>
+
+                    <td>
+                        ${escapeHtml(
+                            item.seller_name ||
+                            item.note ||
+                            "-"
+                        )}
+                    </td>
+
+                    <td>
+                        ${money(item.amount)}
+                    </td>
+
+                    <td>
+                        ${item.date || "-"}
+                    </td>
+
+                    <td>
+                        ${isWithdrawal
+                            ? "Expense"
+                            : escapeHtml(item.type || "-")}
+                    </td>
+
+                    <td>
+                        <button
+                            type="button"
+                            onclick="${
+                                isWithdrawal
+                                    ? `deleteWithdrawal(${item.id})`
+                                    : `deleteTransaction(${item.id})`
+                            }"
+                        >
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join("");
+}
+
+
+async function deleteWithdrawal(id) {
+
+    if (!confirm(
+        "Delete this withdrawal?"
+    )) {
+        return;
+    }
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("withdrawals")
+            .delete()
+            .eq("id", id);
+
+        if (error) {
+            throw error;
+        }
+
+        await fetchWithdrawalsFromSupabase();
+
+        renderLedger();
+        updateDashboard();
+
+    } catch (error) {
+
+        alert(
+            "Could not delete withdrawal:\n" +
+            error.message
+        );
+    }
+}
+
+
+async function deleteTransaction(id) {
+
+    if (!confirm(
+        "Delete this transaction?"
+    )) {
+        return;
+    }
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("ledger")
+            .delete()
+            .eq("id", id);
+
+        if (error) {
+            throw error;
+        }
+
+        await fetchLedgerFromSupabase();
+
+        renderLedger();
+        updateDashboard();
+
+    } catch (error) {
+
+        alert(
+            "Could not delete transaction:\n" +
+            error.message
+        );
+    }
+}
+
+
+function filterLedgerHistory() {
+
+    const query =
+        safeValue(
+            "search-ledger-input"
+        )
+            .trim()
+            .toLowerCase();
+
+    const typeFilter =
+        safeValue(
+            "filter-ledger-type"
+        )
+            .trim()
+            .toLowerCase();
+
+    const body =
+        $("ledger-history-body");
+
+    if (!body) return;
+
+    let rows = [
+        ...generalLedger.map(
+            item => ({
+                kind: "transaction",
+                ...item
+            })
+        ),
+        ...withdrawalHistory.map(
+            item => ({
+                kind: "withdrawal",
+                ...item
+            })
+        )
+    ];
+
+    rows = rows.filter(item => {
+
+        const text =
+            `
+            ${item.type || ""}
+            ${item.title || ""}
+            ${item.role || ""}
+            ${item.seller_name || ""}
+            ${item.note || ""}
+            `
+                .toLowerCase();
+
+        const matchesSearch =
+            !query ||
+            text.includes(query);
+
+        const matchesType =
+            !typeFilter ||
+            String(
+                item.type ||
+                item.kind ||
+                ""
+            )
+                .toLowerCase()
+                .includes(typeFilter);
+
+        return (
+            matchesSearch &&
+            matchesType
+        );
+    });
+
+    body.innerHTML =
+        rows.map((item, index) => {
+
+            const isWithdrawal =
+                item.kind === "withdrawal";
+
+            return `
+                <tr>
+                    <td>${index + 1}</td>
+                    <td>
+                        ${isWithdrawal
+                            ? "Withdrawal"
+                            : escapeHtml(item.type || "-")}
+                    </td>
+                    <td>
+                        ${isWithdrawal
+                            ? escapeHtml(item.role || "-")
+                            : escapeHtml(item.title || "-")}
+                    </td>
+                    <td>
+                        ${escapeHtml(
+                            item.seller_name ||
+                            item.note ||
+                            "-"
+                        )}
+                    </td>
+                    <td>${money(item.amount)}</td>
+                    <td>${item.date || "-"}</td>
+                    <td>
+                        <button
+                            onclick="${
+                                isWithdrawal
+                                    ? `deleteWithdrawal(${item.id})`
+                                    : `deleteTransaction(${item.id})`
+                            }"
+                        >
+                            Delete
+                        </button>
+                    </td>
+                </tr>
+            `;
+        }).join("");
+}
+
+
+/* =========================================================
+   SELLER MANAGEMENT
+   ========================================================= */
+async function fetchSellersFromSupabase() {
+    const { data, error } = await supabaseClient.from("sellers").select("*").order("created_at", { ascending: false });
+    if (error) throw error;
+    sellerList = data || [];
+    populateSellerSelects();
+}
+
+function populateSellerSelects() {
+    const options = '<option value="">Select seller</option>' + sellerList.map(s => `<option value="${escapeHtml(s.id)}">${escapeHtml(s.seller_code || "")}${s.seller_code ? " — " : ""}${escapeHtml(s.name)}</option>`).join("");
+    ["sale-seller-id", "with-seller-id"].forEach(id => {
+        const el = $(id); if (!el) return;
+        const current = el.value; el.innerHTML = options;
+        if (current && sellerList.some(s => String(s.id) === String(current))) el.value = current;
+    });
+}
+
+function renderSellers() {
+    const body = $("seller-list-body");
+    if (!body) return;
+    const query = safeValue("seller-search").trim().toLowerCase();
+    const rows = sellerList.filter(s => `${s.seller_code || ""} ${s.name || ""}`.toLowerCase().includes(query));
+    safeText("seller-count", sellerList.length);
+    safeText("seller-total-balance", "৳" + money(sellerList.reduce((sum, s) => sum + num(s.balance), 0)));
+    body.innerHTML = rows.length ? rows.map(s => `<tr class="border-b"><td class="p-3 font-semibold">${escapeHtml(s.seller_code || "-")}</td><td class="p-3">${escapeHtml(s.name || "-")}</td><td class="p-3 font-semibold">৳${money(s.balance)}</td><td class="p-3"><button class="btn btn-primary" type="button" onclick="editSeller('${String(s.id).replace(/'/g, "\'")}')">Edit</button> <button class="btn btn-danger" type="button" onclick="deleteSeller('${String(s.id).replace(/'/g, "\'")}')">Delete</button></td></tr>`).join("") : '<tr><td colspan="4" class="p-4 text-center muted">No sellers found. Add your first seller.</td></tr>';
+    populateSellerSelects();
+}
+
+function openStoreModal() {
+    const form = $("store-form"); if (form) form.reset();
+    $("st-edit-id").value = "";
+    safeText("store-modal-title", "Add Store");
+    openModal("add-store-modal");
+}
+
+function openSellerModal() {
+    const form = $("seller-form"); if (form) form.reset();
+    safeText("seller-modal-title", "Add Seller");
+    $("seller-edit-id").value = "";
+    openModal("seller-modal");
+}
+
+function editSeller(id) {
+    const seller = sellerList.find(s => String(s.id) === String(id)); if (!seller) return;
+    $("seller-edit-id").value = seller.id;
+    $("seller-code").value = seller.seller_code || "";
+    $("seller-name").value = seller.name || "";
+    $("seller-balance").value = num(seller.balance);
+    safeText("seller-modal-title", "Edit Seller");
+    openModal("seller-modal");
+}
+
+async function saveSeller(event) {
+    if (event) event.preventDefault();
+    const id = safeValue("seller-edit-id");
+    const seller_code = safeValue("seller-code").trim().toUpperCase();
+    const name = safeValue("seller-name").trim();
+    const balance = num(safeValue("seller-balance"));
+    if (!seller_code || !name || balance < 0) { alert("Enter a seller ID, name, and a balance of zero or more."); return; }
+    const button = $("seller-form")?.querySelector('button[type="submit"]'); setButtonLoading(button, true);
+    try {
+        const payload = { seller_code, name, balance, user_id: currentUserId() };
+        const response = id ? await supabaseClient.from("sellers").update({ seller_code, name, balance }).eq("id", id).eq("user_id", currentUserId()) : await supabaseClient.from("sellers").insert(payload);
+        if (response.error) throw response.error;
+        await fetchSellersFromSupabase(); renderSellers(); updateDashboard(); closeModalSafe("seller-modal");
+    } catch (error) { alert("Could not save seller: " + error.message); }
+    finally { setButtonLoading(button, false, "Save Seller"); }
+}
+
+async function deleteSeller(id) {
+    const seller = sellerList.find(s => String(s.id) === String(id)); if (!seller) return;
+    if (!confirm(`Delete seller ${seller.name}? Historical sales and withdrawals will keep their saved name.`)) return;
+    try {
+        const { error } = await supabaseClient.from("sellers").delete().eq("id", id).eq("user_id", currentUserId());
+        if (error) throw error;
+        await fetchSellersFromSupabase(); renderSellers();
+    } catch (error) { alert("Could not delete seller: " + error.message); }
+}
+
+/* =========================================================
+   STORES
+   ========================================================= */
+
+async function fetchStoresFromSupabase() {
+
+    const {
+        data,
+        error
+    } = await supabaseClient
+        .from("stores")
+        .select("*")
+        .order("id", {
+            ascending: false
+        });
+
+    if (error) {
+        throw error;
+    }
+
+    storeList = data || [];
+}
+
+
+async function saveStore(event) {
+
+    if (event) {
+        event.preventDefault();
+    }
+
+    const editId = safeValue("st-edit-id");
+    const name =
+        safeValue("st-name").trim();
+
+    const owner =
+        safeValue("st-owner").trim();
+
+    const area =
+        safeValue("st-area").trim();
+
+    const phone =
+        safeValue("st-phone").trim();
+
+    const whatsapp =
+        safeValue("st-whatsapp").trim();
+
+    const location =
+        safeValue("st-location").trim();
+
+    if (!name || !area) {
+        alert(
+            "Store name and area are required."
+        );
+        return;
+    }
+
+    const form =
+        $("store-form");
+
+    const button =
+        form?.querySelector(
+            'button[type="submit"]'
+        );
+
+    setButtonLoading(
+        button,
+        true
+    );
+
+    try {
+
+        const storePayload = { name, owner, area, phone, whatsapp, location };
+        const response = editId
+            ? await supabaseClient.from("stores").update(storePayload).eq("id", editId).eq("user_id", currentUserId())
+            : await supabaseClient.from("stores").insert({ user_id: currentUserId(), ...storePayload });
+        const { error } = response;
+
+        if (error) {
+            throw error;
+        }
+
+        await fetchStoresFromSupabase();
+
+        renderStores();
+
+        if (form) form.reset();
+        safeText("store-modal-title", "Add Store");
+        closeModalSafe("add-store-modal");
+
+        populateStoreSelect();
+
+        alert(editId ? "Store updated successfully." : "Store saved successfully.");
+
+    } catch (error) {
+
+        console.error(
+            "Store save error:",
+            error
+        );
+
+        alert(
+            "Store save failed:\n" +
+            error.message
+        );
+
+    } finally {
+
+        setButtonLoading(
+            button,
+            false,
+            "Save Store"
+        );
+    }
+}
+
+
+function editStore(id) {
+    const store = storeList.find(s => String(s.id) === String(id));
+    if (!store) return;
+    $("st-edit-id").value = store.id;
+    $("st-name").value = store.name || "";
+    $("st-owner").value = store.owner || "";
+    $("st-area").value = store.area || "";
+    $("st-phone").value = store.phone || "";
+    $("st-whatsapp").value = store.whatsapp || "";
+    $("st-location").value = store.location || "";
+    safeText("store-modal-title", "Edit Store");
+    openModal("add-store-modal");
+}
+
+
+function renderStores() {
+
+    const body =
+        $("store-list-body");
+
+    if (!body) return;
+
+    const areaFilter =
+        safeValue(
+            "store-area-filter"
+        ).trim().toLowerCase();
+    const storeQuery = safeValue("store-search").trim().toLowerCase();
+
+    const filtered = storeList.filter(s => {
+        const areaMatch = !areaFilter || String(s.area || "").toLowerCase().includes(areaFilter);
+        const queryMatch = !storeQuery || `${s.name || ""} ${s.owner || ""} ${s.area || ""} ${s.phone || ""} ${s.location || ""}`.toLowerCase().includes(storeQuery);
+        return areaMatch && queryMatch;
+    });
+
+    // Keep the existing Stores UI, but make the Area filter a real selector
+    // populated from the areas already present in the store records.
+    const areaSelect = $("store-area-filter");
+    if (areaSelect) {
+        const areas = [...new Set(
+            storeList
+                .map(s => String(s.area || "").trim())
+                .filter(Boolean)
+        )].sort((a, b) => a.localeCompare(b));
+        const currentArea = areaSelect.value;
+        areaSelect.innerHTML =
+            '<option value="">All Areas</option>' +
+            areas.map(area =>
+                `<option value="${escapeHtml(area)}">${escapeHtml(area)}</option>`
+            ).join("");
+        if (areas.includes(currentArea)) areaSelect.value = currentArea;
+    }
+
+    safeText("store-count-label", `${filtered.length} shops${areaFilter ? ` in ${safeValue("store-area-filter")}` : " total"}`);
+    const summary = $("store-area-summary");
+    if (summary) {
+        const counts = new Map();
+        storeList.forEach(store => { const area = String(store.area || "Unassigned").trim() || "Unassigned"; counts.set(area, (counts.get(area) || 0) + 1); });
+        summary.innerHTML = `<div class="card bg-slate-950 text-white"><p class="text-slate-300 text-sm">Total Shops</p><div class="text-3xl font-extrabold mt-2">${storeList.length}</div></div>` + [...counts].sort((a,b)=>b[1]-a[1]).map(([area,count])=>`<div class="card"><p class="muted">${escapeHtml(area)}</p><div class="stat-value">${count}</div><p class="muted">shops in this area</p></div>`).join("");
+    }
+    populateStoreSelect();
+
+    if (!filtered.length) {
+
+        body.innerHTML =
+            `<tr>
+                <td colspan="8">
+                    No stores found
+                </td>
+            </tr>`;
+
+        return;
+    }
+
+    body.innerHTML =
+        filtered.map((s, index) => `
+            <tr>
+                <td>${index + 1}</td>
+                <td>${escapeHtml(s.name)}</td>
+                <td>${escapeHtml(s.owner || "-")}</td>
+                <td>${escapeHtml(s.area || "-")}</td>
+                <td>${escapeHtml(s.phone || "-")}</td>
+                <td>${escapeHtml(s.whatsapp || "-")}</td>
+                <td>${escapeHtml(s.location || "-")}</td>
+                <td class="whitespace-nowrap">
+                    <button type="button" class="btn btn-primary" onclick="editStore(${JSON.stringify(String(s.id))})">Edit</button>
+                    <button type="button" class="btn btn-danger" onclick="deleteStore(${JSON.stringify(String(s.id))})">Delete</button>
+                </td>
+            </tr>
+        `).join("");
+}
+
+
+function filterStoresByArea() {
+    renderStores();
+}
+
+
+function populateStoreSelect() {
+    const select = $("sale-store-id");
+    if (select) {
+        const current = select.value;
+        select.innerHTML = '<option value="">Select store</option>' + storeList.map(store => `<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)} - ${escapeHtml(store.area || "")}</option>`).join("");
+        if (current) select.value = current;
+    }
+    const reportSelect = $("report-store-select");
+    if (!reportSelect) return;
+    const selected = Array.from(reportSelect.selectedOptions).map(o => String(o.value));
+    reportSelect.innerHTML = storeList.map(store => `<option value="${escapeHtml(store.id)}">${escapeHtml(store.name)}</option>`).join("");
+    selected.forEach(id => { const option = Array.from(reportSelect.options).find(o => String(o.value) === id); if (option) option.selected = true; });
+    renderReportStoreCards();
+}
+
+function renderReportStoreCards() {
+    const cards = $("report-store-cards"), select = $("report-store-select");
+    if (!cards || !select) return;
+    const selected = new Set(Array.from(select.selectedOptions).map(o => String(o.value)));
+    cards.innerHTML = storeList.length ? storeList.map(store => {
+        const id = String(store.id), checked = selected.has(id);
+        return `<button type="button" class="card report-store-card text-left ${checked ? 'report-store-card-active' : ''}" onclick="toggleReportStore(${JSON.stringify(id)}, ${!checked})" aria-pressed="${checked}">
+            <div class="flex items-center justify-between gap-3"><div class="min-w-0 font-bold">${escapeHtml(store.name || 'Unnamed shop')}</div><span class="report-store-check">${checked ? '✓ Selected' : 'Select store'}</span></div>
+        </button>`;
+    }).join('') : '<div class="empty-state">No stores added yet.</div>';
+    const panel = $("report-store-history-panels");
+    if (panel) panel.innerHTML = '';
+}
+
+function getSaleItemsForReportCards(sale) {
+    if (Array.isArray(sale?.items)) return sale.items;
+    if (typeof sale?.items === 'string') { try { return JSON.parse(sale.items) || []; } catch (_) { return []; } }
+    return [];
+}
+
+function getStoreSaleAmountForCards(sale, storeId) {
+    const items = getSaleItemsForReportCards(sale).filter(item => String(item.store_id ?? sale.store_id ?? '') === String(storeId));
+    if (!items.length) return String(sale.store_id ?? '') === String(storeId) ? num(sale.total_sale) : 0;
+    return items.reduce((sum, item) => sum + num(item.total_sale || item.sale_total || (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * num(item.sets || item.total_sets))), 0);
+}
+
+function renderSelectedStoreHistoryPanels() {
+    const panel = $("report-store-history-panels");
+    const select = $("report-store-select");
+    if (!panel || !select) return;
+
+    const selectedIds = Array.from(select.options)
+        .filter(option => option.selected)
+        .map(option => String(option.value));
+
+    if (!selectedIds.length) {
+        panel.innerHTML = '<div class="card muted">Click a store above to show its sales history here.</div>';
+        return;
+    }
+
+    const itemsFor = sale => {
+        if (Array.isArray(sale?.items)) return sale.items;
+        if (typeof sale?.items === "string") {
+            try { return JSON.parse(sale.items) || []; } catch (_) { return []; }
+        }
+        return [];
+    };
+    const dateFor = sale => {
+        const raw = sale.created_at || sale.sold_at || sale.sale_date || sale.date || sale.updated_at;
+        if (!raw) return "-";
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? String(raw) :
+            d.toLocaleString("en-GB", { day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:true });
+    };
+    const codeFor = item => {
+        const pid = item?.product_id || item?.product?.id || item?.stock?.product_id;
+        const product = pid ? productsList.find(p => String(p.id) === String(pid)) : null;
+        return String(item?.product_code || item?.code || item?.print_code ||
+            product?.code || product?.print_code || item?.product?.code || item?.stock?.print_code || "-");
+    };
+
+    panel.innerHTML = selectedIds.map(id => {
+        const store = storeList.find(s => String(s.id) === id);
+        // Filter by store, but preserve every saved sales record. Never combine different sale IDs.
+        const sales = saleHistory.filter(sale => {
+            if (String(sale.store_id ?? "") === id) return true;
+            return itemsFor(sale).some(item => String(item.store_id ?? sale.store_id ?? "") === id);
+        }).sort((a, b) => {
+            const da = new Date(a.created_at || a.sold_at || a.sale_date || a.date || 0).getTime() || 0;
+            const db = new Date(b.created_at || b.sold_at || b.sale_date || b.date || 0).getTime() || 0;
+            return db - da;
+        });
+
+        const rows = [];
+        sales.forEach(sale => {
+            const items = itemsFor(sale);
+            const matched = items.filter(item => String(item.store_id ?? sale.store_id ?? "") === id);
+            // One row per product within a sale; same product sold on different occasions stays separate by Sale ID.
+            if (matched.length) {
+                matched.forEach(item => {
+                    const sets = num(item.sets ?? item.total_sets);
+                    const pcsPerSet = num(item.pcs_per_set ?? item.pieces_per_set);
+                    const amount = num(item.total_sale || item.sale_total ||
+                        (num(item.sale_price_per_set || item.sell_price_per_set || item.sell_price) * sets));
+                    rows.push({ date: dateFor(sale), saleId: sale.id, code: codeFor(item), sets,
+                        pcs: num(item.pieces || item.total_pieces) || sets * pcsPerSet, amount });
+                });
+            } else if (!items.length && String(sale.store_id ?? "") === id) {
+                rows.push({ date: dateFor(sale), saleId: sale.id, code: codeFor(sale),
+                    sets: num(sale.total_sets), pcs: num(sale.total_pcs || sale.total_pieces), amount: num(sale.total_sale) });
+            }
+        });
+
+        return `<section class="card report-store-history-card">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <div><h3 class="font-bold text-lg">${escapeHtml(store?.name || "Store")}</h3>
+                <p class="muted">${escapeHtml(store?.area || "Area not set")} · ${sales.length} separate sale record${sales.length === 1 ? "" : "s"}</p></div>
+                <span class="report-store-check">${rows.length} product row${rows.length === 1 ? "" : "s"}</span>
+            </div>
+            <div class="table-wrapper report-history-scroll"><table class="w-full text-sm">
+                <thead><tr class="border-b bg-slate-50 text-left"><th class="p-3">Date / Time</th><th class="p-3">Sale ID</th><th class="p-3">Product Code</th><th class="p-3">Sets</th><th class="p-3">Pieces</th><th class="p-3">Sales Amount</th></tr></thead>
+                <tbody>${rows.length ? rows.map(r => `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">#${escapeHtml(r.saleId)}</td><td class="p-3 font-semibold">${escapeHtml(r.code)}</td><td class="p-3">${r.sets}</td><td class="p-3">${Math.round(r.pcs)}</td><td class="p-3">৳${money(r.amount)}</td></tr>`).join("") : '<tr><td colspan="6" class="p-4 text-center muted">No sales history found for this store.</td></tr>'}</tbody>
+            </table></div></section>`;
+    }).join("");
+}
+
+function toggleReportStore(id, checked) {
+    const select = $("report-store-select"); if (!select) return;
+    // A store click focuses on that store, so its history is shown on its own below.
+    Array.from(select.options).forEach(option => { option.selected = checked && String(option.value) === String(id); });
+    renderReportStoreCards();
+    generateStoreReport();
+    renderSelectedStoreHistoryPanels();
+}
+
+
+async function deleteStore(id) {
+
+    if (!confirm(
+        "Delete this store?"
+    )) {
+        return;
+    }
+
+    try {
+
+        const {
+            error
+        } = await supabaseClient
+            .from("stores")
+            .delete()
+            .eq("id", id);
+
+        if (error) {
+            throw error;
+        }
+
+        await fetchStoresFromSupabase();
+
+        renderStores();
+
+    } catch (error) {
+
+        alert(
+            "Could not delete store:\n" +
+            error.message
+        );
+    }
+}
+
+
+function generateStoreReport() {
+    const select = $("report-store-select");
+    const body = $("report-table-body");
+    const historyBody = $("report-history-body");
+    if (!select || !body) return;
+
+    const itemsFor = sale => {
+        if (Array.isArray(sale?.items)) return sale.items;
+        if (typeof sale?.items === "string") { try { const parsed = JSON.parse(sale.items); return Array.isArray(parsed) ? parsed : []; } catch (_) { return []; } }
+        return [];
+    };
+    const selectedIds = Array.from(select.options).filter(o => o.selected).map(o => String(o.value));
+    const selectedSet = new Set(selectedIds);
+    const selectedStores = storeList.filter(s => selectedSet.has(String(s.id)));
+    const codeFor = item => {
+        const pid = item?.product_id || item?.product?.id || item?.stock?.product_id;
+        const p = pid == null ? null : productsList.find(x => String(x.id) === String(pid));
+        return String(item?.product_code || item?.code || item?.print_code || item?.product_code_snapshot ||
+            item?.product?.code || item?.stock?.print_code || p?.code || p?.print_code || "-");
+    };
+    const dateValue = sale => sale.created_at || sale.sold_at || sale.sale_date || sale.date || sale.updated_at || "";
+    const dateLabel = sale => {
+        const raw = dateValue(sale);
+        if (!raw) return "-";
+        const d = new Date(raw);
+        return Number.isNaN(d.getTime()) ? String(raw) : d.toLocaleString("en-GB", {
+            day:"2-digit", month:"short", year:"numeric", hour:"2-digit", minute:"2-digit", hour12:true
+        });
+    };
+    const itemStoreId = (item, sale) => String(item?.store_id ?? sale?.store_id ?? "");
+    const itemSets = item => num(item?.sets ?? item?.total_sets ?? item?.quantity);
+    const itemAmount = item => {
+        const explicit = item?.total_sale ?? item?.sale_total ?? item?.total_amount ?? item?.amount;
+        if (explicit != null && explicit !== "") return num(explicit);
+        return num(item?.sale_price_per_set ?? item?.sell_price_per_set ?? item?.sell_price ?? item?.price_per_set) * itemSets(item);
+    };
+    const saleRowsForStore = (sale, id) => {
+        const items = itemsFor(sale);
+        const matched = items.filter(item => itemStoreId(item, sale) === String(id));
+        if (matched.length) return matched;
+        if (!items.length && String(sale?.store_id ?? "") === String(id)) return [sale];
+        return [];
+    };
+    const saleAmountForStore = (sale, id) => {
+        const matched = saleRowsForStore(sale, id);
+        if (!matched.length) return 0;
+        if (matched[0] === sale) return num(sale.total_sale ?? sale.sale_amount ?? sale.total_amount);
+        const itemTotal = matched.reduce((sum, item) => sum + itemAmount(item), 0);
+        // For older records without item-level amounts, only attribute the sale total
+        // when the sale belongs to a single store; avoid counting it once per store.
+        if (itemTotal > 0) return itemTotal;
+        const distinctStores = new Set(itemsFor(sale).map(item => itemStoreId(item, sale)));
+        return distinctStores.size <= 1 ? num(sale.total_sale ?? sale.sale_amount ?? sale.total_amount) : 0;
+    };
+
+    if (!selectedStores.length) {
+        body.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-500">Select a store above to view its report.</td></tr>';
+        if (historyBody) historyBody.innerHTML = '<tr><td colspan="8" class="p-4 text-center text-slate-500">Select a store above to view its sales history.</td></tr>';
+        safeText("report-total-sets", "0");
+        safeText("report-total-sales", "0.00");
+        safeText("report-total-profit", "0.00");
+        renderSelectedStoreHistoryPanels();
+        return;
+    }
+
+    const storeMetrics = selectedStores.map(store => {
+        const id = String(store.id);
+        const sales = saleHistory.filter(sale => saleRowsForStore(sale, id).length > 0);
+        let sets = 0, salesAmount = 0, profit = 0;
+        const soldByCode = new Map();
+        sales.forEach(sale => {
+            const rows = saleRowsForStore(sale, id);
+            rows.forEach(item => {
+                sets += itemSets(item);
+                const code = codeFor(item);
+                soldByCode.set(code, (soldByCode.get(code) || 0) + itemSets(item));
+            });
+            salesAmount += saleAmountForStore(sale, id);
+            const items = itemsFor(sale);
+            const storeProfit = rows.length && rows[0] !== sale
+                ? rows.reduce((sum, item) => sum + num(item.gross_profit ?? item.profit), 0)
+                : num(sale.gross_profit ?? sale.profit);
+            profit += storeProfit;
+        });
+        return { store, sales, sets, salesAmount, profit, soldByCode };
+    });
+
+    body.innerHTML = storeMetrics.map(m => {
+        const soldSetsHtml = [...m.soldByCode.entries()]
+            .map(([code, count]) => `<div><strong>${escapeHtml(code)}</strong>: ${count} set${count === 1 ? "" : "s"}</div>`).join("");
+        return `<tr><td class="p-3">${escapeHtml(m.store.name || "Unnamed store")}</td><td class="p-3">${escapeHtml(m.store.area || "-")}</td><td class="p-3">${soldSetsHtml || "-"}</td><td class="p-3 font-semibold">${m.sets}</td><td class="p-3">${money(m.salesAmount)}</td><td class="p-3">${money(m.profit)}</td></tr>`;
+    }).join("");
+
+    if (historyBody) {
+        const rows = [];
+        selectedStores.forEach(store => {
+            const id = String(store.id);
+            saleHistory.forEach(sale => {
+                const items = saleRowsForStore(sale, id);
+                if (!items.length) return;
+                const isLegacySale = items.length === 1 && items[0] === sale;
+                const rawDate = dateValue(sale);
+                const codes = isLegacySale ? codeFor(sale) : [...new Set(items.map(codeFor))].join(", ");
+                const sets = isLegacySale ? num(sale.total_sets) : items.reduce((sum, item) => sum + itemSets(item), 0);
+                const pieces = isLegacySale ? num(sale.total_pcs ?? sale.total_pieces) :
+                    items.reduce((sum, item) => sum + num(item.pieces ?? item.total_pieces ?? item.total_pcs ?? (itemSets(item) * num(item.pcs_per_set ?? item.pieces_per_set))), 0);
+                rows.push({
+                    rawDate, date: dateLabel(sale), saleId: sale.id ?? "-", store: store.name || "-",
+                    area: store.area || "-", codes, sets, pieces, amount: saleAmountForStore(sale, id)
+                });
+            });
+        });
+        rows.sort((a, b) => (new Date(b.rawDate || 0).getTime() || 0) - (new Date(a.rawDate || 0).getTime() || 0));
+        historyBody.innerHTML = rows.length ? rows.map(r =>
+            `<tr class="border-b"><td class="p-3 whitespace-nowrap">${escapeHtml(r.date)}</td><td class="p-3">#${escapeHtml(r.saleId)}</td><td class="p-3">${escapeHtml(r.store)}</td><td class="p-3">${escapeHtml(r.area)}</td><td class="p-3 font-semibold">${escapeHtml(r.codes)}</td><td class="p-3">${r.sets}</td><td class="p-3">${Math.round(r.pieces)}</td><td class="p-3">${money(r.amount)}</td></tr>`
+        ).join("") : '<tr><td colspan="8" class="p-4 text-center text-slate-500">No sales history found for the selected store(s).</td></tr>';
+    }
+
+    safeText("report-total-sets", storeMetrics.reduce((sum, m) => sum + m.sets, 0));
+    safeText("report-total-sales", money(storeMetrics.reduce((sum, m) => sum + m.salesAmount, 0)));
+    safeText("report-total-profit", money(storeMetrics.reduce((sum, m) => sum + m.profit, 0)));
+    renderSelectedStoreHistoryPanels();
+}
+
+/* =========================================================
+   DASHBOARD
+   ========================================================= */
+
+function updateDashboard() {
+
+    const totalSales =
+        saleHistory.reduce(
+            (sum, s) =>
+                sum +
+                num(s.total_sale),
+            0
+        );
+
+    const totalGrossProfit =
+        saleHistory.reduce(
+            (sum, s) =>
+                sum +
+                num(s.gross_profit),
+            0
+        );
+
+    const totalSetsSold = saleHistory.reduce((sum, s) => sum + (num(s.total_sets) || getSaleItems(s).reduce((n,item) => n + num(item.sets), 0)), 0);
+    safeText("dash-product-count", productsList.length);
+    safeText("dash-production-count", productionHistory.length);
+    safeText("dash-store-count", storeList.length);
+    safeText("dash-seller-count", sellerList.length);
+    safeText("dash-seller-balances", money(sellerList.reduce((sum, s) => sum + num(s.balance), 0)));
+    safeText("dash-stock-sets", productHouseStock.reduce((sum,s) => sum + num(s.sets), 0));
+
+    const totalStock =
+        productHouseStock.reduce(
+            (sum, s) =>
+                sum +
+                num(s.pcs),
+            0
+        );
+
+    const stockValue =
+        productHouseStock.reduce(
+            (sum, s) =>
+                sum +
+                (
+                    num(s.sets) *
+                    num(s.cost_per_set)
+                ),
+            0
+        );
+
+
+    const adminIncome =
+        saleHistory.reduce(
+            (sum, s) =>
+                sum +
+                num(s.admin_profit),
+            0
+        );
+
+    const investorIncome =
+        saleHistory.reduce(
+            (sum, s) =>
+                sum +
+                num(s.investor_profit),
+            0
+        );
+
+    const managerIncome =
+        saleHistory.reduce(
+            (sum, s) =>
+                sum +
+                num(s.manager_profit),
+            0
+        );
+
+    const sellerIncome =
+        saleHistory.reduce(
+            (sum, s) =>
+                sum +
+                num(s.seller_profit),
+            0
+        );
+
+
+    const withdrawals =
+        withdrawalHistory.reduce(
+            (sum, w) =>
+                sum +
+                num(w.amount),
+            0
+        );
+
+
+    const currentBalance =
+        totalSales -
+        withdrawals;
+
+
+    const fasteStudioFund =
+        adminIncome;
+
+
+    safeText(
+        "dash-admin-income",
+        money(adminIncome)
+    );
+
+    safeText(
+        "dash-investor-income",
+        money(investorIncome)
+    );
+
+    safeText(
+        "dash-manager-income",
+        money(managerIncome)
+    );
+
+    safeText(
+        "dash-seller-income",
+        money(sellerIncome)
+    );
+
+    safeText(
+        "dash-faste-studio-fund",
+        money(fasteStudioFund)
+    );
+
+    safeText(
+        "dash-total-stock",
+        totalStock
+    );
+
+    safeText(
+        "dash-total-sets-sold",
+        totalSetsSold
+    );
+
+    safeText(
+        "dash-total-sales",
+        money(totalSales)
+    );
+
+    safeText(
+        "dash-total-gross-profit",
+        money(totalGrossProfit)
+    );
+
+    safeText(
+        "dash-stock-val",
+        money(stockValue)
+    );
+
+    safeText(
+        "dash-current-balance",
+        money(currentBalance)
+    );
+
+
+    const recent =
+        $("dash-recent-sales-list");
+
+    if (recent) {
+
+        const latest = [...saleHistory].sort((a,b) => new Date(b.created_at || b.date || 0).getTime() - new Date(a.created_at || a.date || 0).getTime()).slice(0, 5);
+
+        if (!latest.length) {
+
+            recent.innerHTML =
+                `<div class="muted">
+                    No recent sales
+                </div>`;
+
+        } else {
+
+            recent.innerHTML =
+                latest.map(s => `
+                    <div class="recent-sale-item">
+                        <div>
+                            <strong>
+                                ${escapeHtml(
+                                    s.seller_name ||
+                                    "Sale"
+                                )}
+                            </strong>
+
+                            <small>
+                                ${s.date || "-"}
+                            </small>
+                        </div>
+
+                        <div>
+                            ${money(
+                                s.total_sale
+                            )}
+                        </div>
+                    </div>
+                `).join("");
+        }
+    }
+
+    renderEnhancedDashboard();
+}
+
+let dashboardSetsChartInstance = null;
+let dashboardStockChartInstance = null;
+let stockOverviewChartInstance = null;
+
+function getProductionTargetKey() {
+    return `faste-production-target-${currentUser?.id || "default"}`;
+}
+
+function getProductionTarget() {
+    try { return Math.max(0, num(localStorage.getItem(getProductionTargetKey()))); }
+    catch (_) { return 0; }
+}
+
+function saveProductionTarget() {
+    const target = Math.max(0, Math.floor(num(safeValue("production-target-input"))));
+    try { localStorage.setItem(getProductionTargetKey(), String(target)); }
+    catch (_) { alert("Your browser could not save this target. Please check browser storage settings."); return; }
+    renderEnhancedDashboard();
+    alert("Production target saved.");
+}
+
+function monthKey(dateValue) {
+    const d = dateValue ? new Date(`${String(dateValue).slice(0,10)}T12:00:00`) : null;
+    return d && !Number.isNaN(d.getTime()) ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}` : "";
+}
+
+function getLastSixMonths() {
+    const months=[]; const now=new Date();
+    for(let i=5;i>=0;i--){const d=new Date(now.getFullYear(),now.getMonth()-i,1); months.push({key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`,label:d.toLocaleDateString("en-US",{month:"short"})});}
+    return months;
+}
+
+function getStockByType() {
+    const totals = new Map();
+    productHouseStock.forEach(stock => {
+        const product=productsList.find(p=>String(p.id)===String(stock.product_id));
+        const type=product?.type||stock.type||"Other";
+        totals.set(type,(totals.get(type)||0)+num(stock.sets));
+    });
+    return [...totals.entries()].filter(([,sets])=>sets>0).sort((a,b)=>b[1]-a[1]);
+}
+
+function renderEnhancedDashboard() {
+    const target=getProductionTarget();
+    const targetInput=$("production-target-input");
+    if(targetInput && targetInput.value!==String(target)) targetInput.value=target||"";
+    const produced=productionHistory.reduce((sum,p)=>sum+num(p.total_sets),0);
+    const sold=saleHistory.reduce((sum,s)=>sum+(num(s.total_sets)||getSaleItems(s).reduce((n,item)=>n+num(item.sets),0)),0);
+    const stockSets=productHouseStock.reduce((sum,s)=>sum+num(s.sets),0);
+    const stockPcs=productHouseStock.reduce((sum,s)=>sum+num(s.pcs),0);
+    safeText("target-produced-label",`${produced.toLocaleString()} / ${target.toLocaleString()} sets`);
+    safeText("production-target-status",target ? `${Math.min(100,Math.round(produced/target*100))}% of target reached${produced>=target?" — target achieved!":""}` : "Set a target to track production progress.");
+    const progress=$("production-target-progress"); if(progress) progress.style.width=(target?Math.min(100,produced/target*100):0)+"%";
+    safeText("dash-stock-snapshot-sets",stockSets.toLocaleString()); safeText("dash-stock-snapshot-pcs",stockPcs.toLocaleString());
+    safeText("dash-produced-sets",produced.toLocaleString()); safeText("dash-sold-sets",sold.toLocaleString());
+
+    if(typeof Chart!=="undefined") {
+        const months=getLastSixMonths();
+        const made=months.map(m=>productionHistory.filter(p=>monthKey(p.date||p.created_at)===m.key).reduce((sum,p)=>sum+num(p.total_sets),0));
+        const sales=months.map(m=>saleHistory.filter(s=>monthKey(s.date||s.created_at)===m.key).reduce((sum,s)=>sum+(num(s.total_sets)||getSaleItems(s).reduce((n,item)=>n+num(item.sets),0)),0));
+        const setsCanvas=$("dashboard-sets-chart");
+        if(setsCanvas){if(dashboardSetsChartInstance)dashboardSetsChartInstance.destroy();dashboardSetsChartInstance=new Chart(setsCanvas,{type:"bar",data:{labels:months.map(m=>m.label),datasets:[{label:"Sets Made",data:made,backgroundColor:"#0f766e",borderRadius:5},{label:"Sets Sold",data:sales,backgroundColor:"#2563eb",borderRadius:5}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}},scales:{y:{beginAtZero:true,ticks:{precision:0}}}}});}
+        const stockData=getStockByType();
+        const dashboardStockCanvas=$("dashboard-stock-chart");
+        if(dashboardStockCanvas){if(dashboardStockChartInstance)dashboardStockChartInstance.destroy();dashboardStockChartInstance=new Chart(dashboardStockCanvas,{type:"doughnut",data:{labels:stockData.map(x=>x[0]),datasets:[{data:stockData.map(x=>x[1]),backgroundColor:["#0f766e","#2563eb","#d97706","#7c3aed","#db2777","#64748b","#16a34a"]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"bottom"}}}});}
+        const stockCanvas=$("stock-overview-chart");
+        if(stockCanvas){if(stockOverviewChartInstance)stockOverviewChartInstance.destroy();stockOverviewChartInstance=new Chart(stockCanvas,{type:"bar",data:{labels:stockData.map(x=>x[0]),datasets:[{label:"Sets in stock",data:stockData.map(x=>x[1]),backgroundColor:"#0f766e",borderRadius:5}]},options:{responsive:true,maintainAspectRatio:false,indexAxis:"y",plugins:{legend:{display:false}},scales:{x:{beginAtZero:true,ticks:{precision:0}}}}});}
+    }
+}
+
+/* =========================================================
+   CSV EXPORT
+   ========================================================= */
+
+function exportTableToCSV(
+    tableId,
+    filename = "export.csv"
+) {
+
+    const table =
+        $(tableId);
+
+    if (!table) {
+        alert("Table not found.");
+        return;
+    }
+
+    const rows =
+        table.querySelectorAll(
+            "tr"
+        );
+
+    const csv = [];
+
+    rows.forEach(row => {
+
+        const cols =
+            row.querySelectorAll(
+                "th, td"
+            );
+
+        const rowData =
+            Array.from(cols).map(
+                cell => {
+
+                    const text =
+                        cell.innerText
+                            .replace(
+                                /"/g,
+                                '""'
+                            )
+                            .replace(
+                                /\n/g,
+                                " "
+                            )
+                            .trim();
+
+                    return `"${text}"`;
+                }
+            );
+
+        csv.push(
+            rowData.join(",")
+        );
+    });
+
+    const blob =
+        new Blob(
+            [csv.join("\n")],
+            {
+                type:
+                    "text/csv;charset=utf-8;"
+            }
+        );
+
+    const url =
+        URL.createObjectURL(blob);
+
+    const link =
+        document.createElement("a");
+
+    link.href = url;
+    link.download = filename;
+
+    document.body.appendChild(link);
+
+    link.click();
+
+    link.remove();
+
+    URL.revokeObjectURL(url);
+}
+
+
+/* =========================================================
+   DOM READY
+   ========================================================= */
+
+document.addEventListener(
+    "DOMContentLoaded",
+    () => {
+
+        /* Auth */
+
+        const authModal = $("auth-modal");
+        if (authModal && authModal.parentElement !== document.body) {
+            document.body.appendChild(authModal);
+        }
+
+        setAuthMode("login");
+
+        const authForm =
+            $("auth-form");
+
+        if (authForm) {
+            authForm.addEventListener(
+                "submit",
+                handleLoginSubmit
+            );
+        }
+
+        const switchButton =
+            $("auth-switch-button");
+
+        if (switchButton) {
+
+            switchButton.addEventListener(
+                "click",
+                () => {
+
+                    setAuthMode(
+                        isSignupMode
+                            ? "login"
+                            : "signup"
+                    );
+                }
+            );
+        }
+
+
+        /* Product size */
+
+        [
+            "p-full-size",
+            "p-pcs-set"
+        ].forEach(id => {
+
+            const el = $(id);
+
+            if (el) {
+                el.addEventListener(
+                    "input",
+                    calcPieceSize
+                );
+            }
+        });
+
+
+        /* Production costs */
+
+        [
+            "cost-sticker",
+            "cost-board",
+            "cost-poly",
+            "cost-tape",
+            "cost-transport",
+            "cost-fixed",
+            "cost-ads",
+            "cost-cutting",
+            "cost-packing"
+        ].forEach(id => {
+
+            const el = $(id);
+
+            if (el) {
+                el.addEventListener(
+                    "input",
+                    calcProdCosts
+                );
+            }
+        });
+
+
+        /* Sale rates */
+
+        [
+            "sale-seller-rate",
+            "sale-manager-rate"
+        ].forEach(id => {
+
+            const el = $(id);
+
+            if (el) {
+                el.addEventListener(
+                    "input",
+                    calcSaleProfit
+                );
+            }
+        });
+
+
+        /* Forms */
+
+        const productForm =
+            $("product-form");
+
+        if (productForm) {
+            productForm.addEventListener(
+                "submit",
+                saveProduct
+            );
+        }
+
+        const productionForm =
+            $("production-form");
+
+        if (productionForm) {
+            productionForm.addEventListener(
+                "submit",
+                saveProduction
+            );
+        }
+
+        const saleForm =
+            $("sale-form");
+
+        if (saleForm) {
+            saleForm.addEventListener(
+                "submit",
+                saveSale
+            );
+        }
+
+        const ledgerForm =
+            $("ledger-form");
+
+        if (ledgerForm) {
+            ledgerForm.addEventListener(
+                "submit",
+                saveTransaction
+            );
+        }
+
+        const roleAmountForm = $("role-amount-form");
+        if (roleAmountForm) {
+            roleAmountForm.addEventListener("submit", saveRoleAmount);
+        }
+
+        const withdrawalForm =
+            $("withdrawal-form");
+
+        if (withdrawalForm) {
+            withdrawalForm.addEventListener(
+                "submit",
+                saveWithdrawal
+            );
+        }
+
+        const sellerForm = $("seller-form");
+        if (sellerForm) sellerForm.addEventListener("submit", saveSeller);
+
+        const storeForm =
+            $("store-form");
+
+        if (storeForm) {
+            storeForm.addEventListener(
+                "submit",
+                saveStore
+            );
+        }
+
+        const destroyForm =
+            $("destroy-form");
+
+        if (destroyForm) {
+            destroyForm.addEventListener(
+                "submit",
+                saveDestroy
+            );
+        }
+
+
+        /* Initial auth */
+
+        checkAuthOnLoad();
+
+        setupAuthListener();
+    }
+);
+
+
+/* =========================================================
+   GLOBAL FUNCTIONS
+   ========================================================= */
+
+window.showPage = showPage;
+
+window.openModal = openModal;
+window.closeModal = closeModal;
+
+window.closeAuthModal = closeAuthModal;
+
+window.setAuthMode = setAuthMode;
+
+window.handleLoginSubmit =
+    handleLoginSubmit;
+
+window.handleLogout =
+    handleLogout;
+
+window.openAdminUsers =
+    openAdminUsers;
+
+window.closeAdminUsers =
+    closeAdminUsers;
+
+window.setUserApproval =
+    setUserApproval;
+
+window.loadAdminUsers =
+    loadAdminUsers;
+
+window.calcPieceSize =
+    calcPieceSize;
+
+window.saveProduct =
+    saveProduct;
+
+window.calcProdCosts =
+    calcProdCosts;
+
+window.addProdItemRow =
+    addProdItemRow;
+
+window.saveProduction =
+    saveProduction;
+
+window.openProductionEdit = openProductionEdit;
+window.saveProductionEdit = saveProductionEdit;
+
+window.filterProductionHistory =
+    filterProductionHistory;
+
+window.filterProductHouse =
+    filterProductHouse;
+
+window.openProductHouseEdit = openProductHouseEdit;
+window.saveProductHouseEdit = saveProductHouseEdit;
+
+window.addSaleItemRow =
+    addSaleItemRow;
+
+window.calcSaleProfit =
+    calcSaleProfit;
+
+window.saveSale =
+    saveSale;
+
+window.filterSaleHistory =
+    filterSaleHistory;
+
+window.openSaleReturn = openSaleReturn;
+window.saveSaleReturn = saveSaleReturn;
+
+window.saveTransaction =
+    saveTransaction;
+
+window.saveWithdrawal =
+    saveWithdrawal;
+
+window.handleWithdrawRoleChange =
+    handleWithdrawRoleChange;
+
+window.deleteWithdrawal =
+    deleteWithdrawal;
+
+window.deleteTransaction =
+    deleteTransaction;
+
+window.filterLedgerHistory =
+    filterLedgerHistory;
+
+window.saveStore =
+    saveStore;
+
+window.filterStoresByArea =
+    filterStoresByArea;
+
+window.deleteStore =
+    deleteStore;
+
+window.generateStoreReport =
+    generateStoreReport;
+
+window.toggleReportStore =
+    toggleReportStore;
+
+window.setDestroyStock =
+    setDestroyStock;
+
+window.setDestroyStockById =
+    setDestroyStockById;
+
+window.saveDestroy =
+    saveDestroy;
+
+window.exportTableToCSV =
+    exportTableToCSV;
+
+
+/* =========================================================
+   END
+   ========================================================= */
