@@ -1466,7 +1466,14 @@
             <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">Store Report</span>
         </div>
 
-        <div id="report-store-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3" aria-label="Scrollable store selection"></div>
+        <div class="flex items-center justify-between gap-2 mb-2">
+            <span class="muted text-xs">Choose a store. Scroll up or down to see all stores.</span>
+            <div class="flex gap-2">
+                <button type="button" class="btn btn-secondary" onclick="scrollReportStores(-1)" aria-label="Scroll store list up">↑ Up</button>
+                <button type="button" class="btn btn-secondary" onclick="scrollReportStores(1)" aria-label="Scroll store list down">↓ Down</button>
+            </div>
+        </div>
+        <div id="report-store-cards" class="grid grid-cols-1 gap-3 mb-3" aria-label="Scrollable store selection"></div>
         <div id="report-store-history-panels" class="space-y-4 mt-4" aria-live="polite"><div class="card muted">Click a store above to show its sales history here.</div></div>
         <select
             id="report-store-select"
@@ -1498,6 +1505,21 @@
 
     </div>
 
+
+    <div class="card mb-6">
+        <div class="p-5 border-b">
+            <h3 class="font-bold text-lg">Selected Store Summary</h3>
+            <p class="muted text-xs mt-1">Store totals and sets sold by product.</p>
+        </div>
+        <div class="table-wrapper">
+            <table class="w-full text-sm">
+                <thead><tr class="border-b bg-slate-50 text-left">
+                    <th class="p-3">Store</th><th class="p-3">Area</th><th class="p-3">Product / Sets Sold</th><th class="p-3">Total Sets</th><th class="p-3">Sales</th><th class="p-3">Profit</th>
+                </tr></thead>
+                <tbody id="report-table-body"><tr><td colspan="6" class="p-4 text-center muted">Select a store above to view its report.</td></tr></tbody>
+            </table>
+        </div>
+    </div>
 
     <div class="card mb-6">
 
