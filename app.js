@@ -3443,8 +3443,13 @@ function renderReportStoreCards() {
             <div class="flex items-center justify-between gap-3"><div class="min-w-0 font-bold">${escapeHtml(store.name || 'Unnamed shop')}</div><span class="report-store-check">${checked ? '✓ Selected' : 'Select store'}</span></div>
         </button>`;
     }).join('') : '<div class="empty-state">No stores added yet.</div>';
-    const panel = $("report-store-history-panels");
-    if (panel) panel.innerHTML = '';
+    // Keep the current details visible while refreshing the selectable store list.
+}
+
+function scrollReportStores(direction) {
+    const list = $("report-store-cards");
+    if (!list) return;
+    list.scrollBy({ top: direction * Math.max(180, Math.floor(list.clientHeight * 0.75)), behavior: "smooth" });
 }
 
 function getSaleItemsForReportCards(sale) {
@@ -4366,6 +4371,7 @@ window.generateStoreReport =
 
 window.toggleReportStore =
     toggleReportStore;
+window.scrollReportStores = scrollReportStores;
 
 window.setDestroyStock =
     setDestroyStock;
