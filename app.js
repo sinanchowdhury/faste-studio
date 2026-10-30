@@ -27,6 +27,7 @@ let storeList = [];
 let sellerList = [];
 let generalLedger = [];
 let withdrawalHistory = [];
+let storeDuePayments = [];
 
 let currentUser = null;
 let authProfile = null;
@@ -586,6 +587,10 @@ function showPage(pageId) {
             renderSellers();
         }
 
+        if (pageId === "store-due") {
+            renderStoreDue();
+        }
+
         if (pageId === "report") {
             renderReportStoreCards();
             generateStoreReport();
@@ -640,7 +645,8 @@ async function loadInitialData() {
             fetchStoresFromSupabase(),
             fetchSellersFromSupabase(),
             fetchLedgerFromSupabase(),
-            fetchWithdrawalsFromSupabase()
+            fetchWithdrawalsFromSupabase(),
+            fetchStoreDuePayments()
         ]);
 
         renderProductList();
@@ -1994,6 +2000,13 @@ async function saveSale(event) {
     const sellerName = selectedSeller?.name || "";
     if (!selectedSeller) { alert("Please select a seller before saving the sale."); return; }
 
+    const paidInput = safeValue("sale-paid-amount").trim();
+    const paidAmount = paidInput === "" ? totalSale : num(paidInput);
+    if (paidAmount < 0 || paidAmount > totalSale) { alert("Paid amount must be between 0 and the total sale amount."); return; }
+    const dueAmount = Math.max(0, totalSale - paidAmount);
+    const fullyPaid = dueAmount <= 0.009;
+    if (dueAmount > 0.009 && !storeId) { alert("Select a Store before saving a sale with unpaid balance."); return; }
+
     const saleDate =
         safeValue(
             "sale-date",
@@ -2055,6 +2068,9 @@ async function saveSale(event) {
 
                 total_sale:
                     totalSale,
+                paid_amount: paidAmount,
+                due_amount: dueAmount,
+                payment_status: fullyPaid ? "paid" : (paidAmount > 0 ? "partial" : "unpaid"),
 
                 gross_profit:
                     grossProfit,
@@ -2180,39 +2196,51 @@ async function saveSale(event) {
         }
 
 
-        /* Add exactly one Balance entry for revenue and one for each role. */
+        /* Balance records only the money actually received. Role income is posted only after full payment. */
         const saleCode = items.map(item =>
             (productsList.find(p => String(p.id) === String(item.stock.product_id))?.code) || item.stock.print_code || "-"
         ).filter(Boolean).join(", ");
 
-        const saleLedgerRows = [
-            { title: `Sale Revenue${saleCode ? ` - ${saleCode}` : ""}`, amount: totalSale, note: `auto_sale_revenue:${sale.id}` },
-            { title: "Seller Income", amount: sellerProfit, note: `auto_sale_role:seller:${sale.id}` },
-            { title: "Manager Income", amount: managerProfit, note: `auto_sale_role:manager:${sale.id}` },
-            { title: "Investor Income", amount: investorProfit, note: `auto_sale_role:investor:${sale.id}` },
-            { title: "Admin Income", amount: adminProfit, note: `auto_sale_role:admin:${sale.id}` }
-        ].filter(row => num(row.amount) > 0).map(row => ({
-            user_id: currentUserId(), date: saleDate, type: "Income", title: row.title, amount: num(row.amount), note: row.note
-        }));
-
-        if (saleLedgerRows.length) {
-            const { error: ledgerError } = await supabaseClient.from("ledger").insert(saleLedgerRows);
-            if (ledgerError) throw new Error("Sale saved, but Balance income could not be added: " + ledgerError.message);
+        if (paidAmount > 0) {
+            const { error: ledgerError } = await supabaseClient.from("ledger").insert({
+                user_id: currentUserId(), date: saleDate, type: "Income",
+                title: `Sale Payment${saleCode ? ` - ${saleCode}` : ""}`,
+                amount: paidAmount, note: `auto_sale_revenue:${sale.id}`
+            });
+            if (ledgerError) throw new Error("Sale saved, but received payment could not be added to Balance: " + ledgerError.message);
+            const { error: paymentError } = await supabaseClient.from("store_due_payments").insert({
+                user_id: currentUserId(), sale_id: sale.id, amount: paidAmount, payment_date: saleDate, note: "Initial sale payment"
+            });
+            if (paymentError) throw new Error("Sale saved, but payment history could not be saved: " + paymentError.message);
         }
 
-        // Add this sale's seller commission to the selected seller balance.
-        if (selectedSeller && sellerProfit > 0) {
-            const { error: sellerBalanceError } = await supabaseClient.from("sellers")
-                .update({ balance: num(selectedSeller.balance) + sellerProfit })
-                .eq("id", selectedSeller.id).eq("user_id", currentUserId());
-            if (sellerBalanceError) throw new Error("Sale saved, but seller balance could not be updated: " + sellerBalanceError.message);
+        if (fullyPaid) {
+            const roleRows = [
+                { title: "Seller Income", amount: sellerProfit, role: "seller" },
+                { title: "Manager Income", amount: managerProfit, role: "manager" },
+                { title: "Investor Income", amount: investorProfit, role: "investor" },
+                { title: "Admin Income", amount: adminProfit, role: "admin" }
+            ].filter(row => num(row.amount) > 0).map(row => ({
+                user_id: currentUserId(), date: saleDate, type: "Income", title: row.title, amount: num(row.amount), note: `auto_sale_role:${row.role}:${sale.id}`
+            }));
+            if (roleRows.length) {
+                const { error: roleError } = await supabaseClient.from("ledger").insert(roleRows);
+                if (roleError) throw new Error("Sale saved, but full-payment income allocation failed: " + roleError.message);
+            }
+            if (selectedSeller && sellerProfit > 0) {
+                const { error: sellerBalanceError } = await supabaseClient.from("sellers")
+                    .update({ balance: num(selectedSeller.balance) + sellerProfit })
+                    .eq("id", selectedSeller.id).eq("user_id", currentUserId());
+                if (sellerBalanceError) throw new Error("Sale saved, but seller balance could not be updated: " + sellerBalanceError.message);
+            }
         }
 
         await Promise.all([
             fetchSellersFromSupabase(),
             fetchSalesFromSupabase(),
             fetchStockFromSupabase(),
-            fetchLedgerFromSupabase()
+            fetchLedgerFromSupabase(),
+            fetchStoreDuePayments()
         ]);
 
         renderSaleHistory();
@@ -2232,9 +2260,11 @@ async function saveSale(event) {
         }
 
         prepareSaleForm();
+        if ($("sale-paid-amount")) $("sale-paid-amount").value = "";
+        renderStoreDue();
 
         alert(
-            "Sale saved successfully."
+            fullyPaid ? "Sale saved successfully. Full payment received." : `Sale saved. ৳${money(paidAmount)} received and ৳${money(dueAmount)} added to Store Due.`
         );
 
     } catch (error) {
@@ -2298,7 +2328,7 @@ function renderSaleHistory(rows = saleHistory) {
     if(!rows.length){body.innerHTML=`<tr><td colspan="14" class="p-3">No sales yet</td></tr>`;return;}
     body.innerHTML=rows.map(s=>`<tr>
         <td>${s.date||"-"}</td><td>${escapeHtml(getSaleCodes(s))}</td><td>${escapeHtml(s.seller_name||"-")}</td><td>${escapeHtml(getSaleStoreName(s))}</td>
-        <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${money(s.seller_profit)}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
+        <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${getSaleDue(s)<=0.009?money(s.seller_profit):"0.00"}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
         <td><button type="button" class="btn btn-danger" ${num(s.total_sets)<=0?'disabled':''} onclick="openSaleReturn(${s.id})">Return</button></td>
     </tr>`).join("");
 }
@@ -2369,6 +2399,69 @@ function filterSaleHistory() {
 /* =========================================================
    LEDGER
    ========================================================= */
+
+async function fetchStoreDuePayments() {
+    const { data, error } = await supabaseClient.from("store_due_payments").select("*").order("id", { ascending: false });
+    if (error) throw error;
+    storeDuePayments = data || [];
+}
+
+function getSalePaid(sale) { return sale.paid_amount == null ? num(sale.total_sale) : num(sale.paid_amount); }
+function getSaleDue(sale) { return sale.due_amount == null ? 0 : Math.max(0, num(sale.due_amount)); }
+
+function renderStoreDue() {
+    const openSales = saleHistory.filter(s => getSaleDue(s) > 0.009);
+    safeText("store-due-total", "৳" + money(openSales.reduce((sum, s) => sum + getSaleDue(s), 0)));
+    safeText("store-due-store-count", new Set(openSales.map(s => String(s.store_id || s.store_name || "unknown"))).size);
+    safeText("store-due-sale-count", openSales.length);
+    const q = String(safeValue("store-due-search")).trim().toLowerCase();
+    const filter = safeValue("store-due-filter", "all");
+    const rows = saleHistory.filter(s => {
+        const due = getSaleDue(s);
+        const storeName = getSaleStoreName(s);
+        const match = !q || storeName.toLowerCase().includes(q) || String(s.id).includes(q);
+        return match && (filter === "all" || (filter === "open" && due > 0.009) || (filter === "paid" && due <= 0.009));
+    });
+    const body = $("store-due-body");
+    if (body) body.innerHTML = rows.length ? rows.map(s => `<tr class="border-b"><td class="p-3">${escapeHtml(s.date || "-")}</td><td class="p-3">#${escapeHtml(s.id)}</td><td class="p-3">${escapeHtml(getSaleStoreName(s))}</td><td class="p-3">৳${money(s.total_sale)}</td><td class="p-3">৳${money(getSalePaid(s))}</td><td class="p-3 font-semibold ${getSaleDue(s)>0?"text-red-600":"text-green-700"}">৳${money(getSaleDue(s))}</td><td class="p-3">${getSaleDue(s)>0.009?`<button class="btn btn-primary" type="button" onclick="openStoreDuePayment('${String(s.id).replace(/'/g,"\'")}')">Receive Payment</button>`:"Paid"}</td></tr>`).join("") : '<tr><td colspan="7" class="p-4 text-center muted">No store due records.</td></tr>';
+    const paymentBody = $("store-due-payment-body");
+    if (paymentBody) paymentBody.innerHTML = storeDuePayments.length ? storeDuePayments.map(p => { const sale = saleHistory.find(s => String(s.id) === String(p.sale_id)); return `<tr class="border-b"><td class="p-3">${escapeHtml(p.payment_date || p.created_at || "-")}</td><td class="p-3">#${escapeHtml(p.sale_id)}</td><td class="p-3">${escapeHtml(sale ? getSaleStoreName(sale) : "-")}</td><td class="p-3 font-semibold">৳${money(p.amount)}</td><td class="p-3">${escapeHtml(p.note || "-")}</td></tr>`; }).join("") : '<tr><td colspan="5" class="p-4 text-center muted">No payments recorded.</td></tr>';
+}
+
+function openStoreDuePayment(saleId) {
+    const sale = saleHistory.find(s => String(s.id) === String(saleId)); if (!sale || getSaleDue(sale) <= 0) return;
+    $("due-payment-sale-id").value = sale.id;
+    $("due-payment-sale-info").textContent = `Sale #${sale.id} · ${getSaleStoreName(sale)} · Remaining due ৳${money(getSaleDue(sale))}`;
+    $("due-payment-amount").value = money(getSaleDue(sale));
+    $("due-payment-amount").max = money(getSaleDue(sale));
+    $("due-payment-note").value = "";
+    openModal("store-due-payment-modal");
+}
+
+async function saveStoreDuePayment(event) {
+    event.preventDefault();
+    const sale = saleHistory.find(s => String(s.id) === String(safeValue("due-payment-sale-id")));
+    if (!sale) { alert("Sale not found."); return; }
+    const amount = num(safeValue("due-payment-amount"));
+    const due = getSaleDue(sale);
+    if (amount <= 0 || amount > due + 0.009) { alert(`Enter an amount between ৳0.01 and ৳${money(due)}.`); return; }
+    const button = $("store-due-payment-form")?.querySelector('button[type="submit"]'); setButtonLoading(button, true, "Save Payment");
+    try {
+        const { data: paymentResult, error: paymentError } = await supabaseClient.rpc("collect_store_due_payment", {
+            p_sale_id: sale.id,
+            p_amount: amount,
+            p_payment_date: todayDate(),
+            p_note: safeValue("due-payment-note").trim() || "Store due payment"
+        });
+        if (paymentError) throw paymentError;
+        const nextDue = Math.max(0, due - amount);
+        const fullyPaid = nextDue <= 0.009;
+        await Promise.all([fetchSalesFromSupabase(), fetchStoreDuePayments(), fetchLedgerFromSupabase(), fetchSellersFromSupabase()]);
+        renderStoreDue(); renderSaleHistory(); renderLedger(); renderSellers(); updateDashboard(); closeModal("store-due-payment-modal");
+        alert(fullyPaid ? "Payment received. Sale is now fully paid and seller income has been credited." : `Payment received: ৳${money(amount)}. Remaining due: ৳${money(nextDue)}.`);
+    } catch (error) { console.error(error); alert("Could not save payment: " + error.message); }
+    finally { setButtonLoading(button, false, "Save Payment"); }
+}
 
 async function fetchLedgerFromSupabase() {
 
@@ -2805,7 +2898,8 @@ function renderLedger() {
         if (!name) return;
         const key = name.toLowerCase();
         const row = sellerTotals.get(key) || { name, earned: 0, withdrawn: 0 };
-        row.earned += num(sale.seller_profit);
+        // Seller commission is earned only after the store has fully paid this sale.
+        if (getSaleDue(sale) <= 0.009) row.earned += num(sale.seller_profit);
         sellerTotals.set(key, row);
     });
     generalLedger.filter(item => String(item.type || "").toLowerCase() === "income" &&
@@ -3767,7 +3861,7 @@ function updateDashboard() {
         saleHistory.reduce(
             (sum, s) =>
                 sum +
-                num(s.admin_profit),
+                (getSaleDue(s) <= 0.009 ? num(s.admin_profit) : 0),
             0
         );
 
@@ -3775,7 +3869,7 @@ function updateDashboard() {
         saleHistory.reduce(
             (sum, s) =>
                 sum +
-                num(s.investor_profit),
+                (getSaleDue(s) <= 0.009 ? num(s.investor_profit) : 0),
             0
         );
 
@@ -3783,7 +3877,7 @@ function updateDashboard() {
         saleHistory.reduce(
             (sum, s) =>
                 sum +
-                num(s.manager_profit),
+                (getSaleDue(s) <= 0.009 ? num(s.manager_profit) : 0),
             0
         );
 
@@ -3791,7 +3885,7 @@ function updateDashboard() {
         saleHistory.reduce(
             (sum, s) =>
                 sum +
-                num(s.seller_profit),
+                (getSaleDue(s) <= 0.009 ? num(s.seller_profit) : 0),
             0
         );
 
@@ -3805,9 +3899,8 @@ function updateDashboard() {
         );
 
 
-    const currentBalance =
-        totalSales -
-        withdrawals;
+    const totalReceived = saleHistory.reduce((sum, sale) => sum + getSalePaid(sale), 0);
+    const currentBalance = totalReceived - withdrawals;
 
 
     const fasteStudioFund =
@@ -4332,6 +4425,9 @@ window.calcSaleProfit =
 
 window.saveSale =
     saveSale;
+window.renderStoreDue = renderStoreDue;
+window.openStoreDuePayment = openStoreDuePayment;
+window.saveStoreDuePayment = saveStoreDuePayment;
 
 window.filterSaleHistory =
     filterSaleHistory;
