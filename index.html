@@ -300,6 +300,10 @@
             Balance
         </button>
 
+        <button id="nav-store-due" onclick="showPage('store-due')" class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
+            Store Due
+        </button>
+
         <button id="nav-sellers" onclick="showPage('sellers')" class="sidebar-button w-full text-left px-4 py-3 rounded-lg hover:bg-slate-800">
             Sellers
         </button>
@@ -982,6 +986,11 @@
                     </select>
                 </div>
 
+                <div>
+                    <label class="form-label" for="sale-paid-amount">Paid Amount (৳)</label>
+                    <input id="sale-paid-amount" type="number" min="0" step="0.01" class="form-input" placeholder="Blank = full payment">
+                    <p class="muted text-xs mt-1">Only received money is added to Balance.</p>
+                </div>
 
             </div>
 
@@ -1438,6 +1447,28 @@
 
 
 <!-- =========================================================
+     STORE DUE
+========================================================= -->
+<section id="page-store-due" class="page-content">
+    <div class="mb-6"><h2 class="section-title">Store Due</h2><p class="muted">Track unpaid store sales, collect payments and view payment history.</p></div>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="card"><p class="muted">Total Due</p><div id="store-due-total" class="stat-value">৳0</div></div>
+        <div class="card"><p class="muted">Stores With Due</p><div id="store-due-store-count" class="stat-value">0</div></div>
+        <div class="card"><p class="muted">Open Due Sales</p><div id="store-due-sale-count" class="stat-value">0</div></div>
+    </div>
+    <div class="card mb-6"><div class="flex flex-wrap gap-3 items-center"><input id="store-due-search" class="form-input max-w-sm" placeholder="Search store or sale ID" oninput="renderStoreDue()"><select id="store-due-filter" class="form-input max-w-xs" onchange="renderStoreDue()"><option value="all">All dues</option><option value="open">Unpaid balance only</option><option value="paid">Fully paid</option></select></div></div>
+    <div class="card mb-6"><h3 class="font-bold text-lg mb-3">Outstanding Store Dues</h3><div class="table-wrapper"><table class="w-full text-sm"><thead><tr class="border-b bg-slate-50 text-left"><th class="p-3">Date</th><th class="p-3">Sale ID</th><th class="p-3">Store</th><th class="p-3">Total Sale</th><th class="p-3">Paid</th><th class="p-3">Due</th><th class="p-3">Action</th></tr></thead><tbody id="store-due-body"></tbody></table></div></div>
+    <div class="card"><h3 class="font-bold text-lg mb-3">Payment History</h3><div class="table-wrapper"><table class="w-full text-sm"><thead><tr class="border-b bg-slate-50 text-left"><th class="p-3">Date</th><th class="p-3">Sale ID</th><th class="p-3">Store</th><th class="p-3">Payment</th><th class="p-3">Note</th></tr></thead><tbody id="store-due-payment-body"></tbody></table></div></div>
+</section>
+
+<!-- Collect due payment modal -->
+<div id="store-due-payment-modal" class="modal">
+  <div class="bg-white rounded-2xl w-full max-w-md p-6"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">Collect Store Payment</h3><button type="button" class="btn btn-secondary" onclick="closeModal('store-due-payment-modal')">Close</button></div>
+    <form id="store-due-payment-form" onsubmit="saveStoreDuePayment(event)"><input type="hidden" id="due-payment-sale-id"><p id="due-payment-sale-info" class="muted mb-3"></p><label class="form-label" for="due-payment-amount">Received Amount (৳)</label><input id="due-payment-amount" type="number" min="0.01" step="0.01" required class="form-input mb-3"><label class="form-label" for="due-payment-note">Note (optional)</label><input id="due-payment-note" class="form-input mb-4" placeholder="Payment reference / note"><button class="btn btn-primary" type="submit">Save Payment</button></form>
+  </div>
+</div>
+
+<!-- =========================================================
      REPORT
 ========================================================= -->
 
@@ -1461,14 +1492,16 @@
         <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
             <div>
                 <label class="form-label mb-1">Select Store</label>
-                <p class="muted text-xs">Choose one or more stores to view their sales report.</p>
+                <p class="muted text-xs">Select a store to view only its summary and sales history.</p>
             </div>
             <span class="px-3 py-1 rounded-full bg-slate-100 text-slate-600 text-xs font-semibold">Store Report</span>
         </div>
 
+        <div id="report-store-cards" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-3" aria-label="Scrollable store selection"></div>
+        <div id="report-store-history-panels" class="space-y-4 mt-4" aria-live="polite"><div class="card muted">Click a store above to show its sales history here.</div></div>
         <select
             id="report-store-select"
-            class="form-input w-full min-h-[48px]"
+            class="form-input w-full min-h-[48px] hidden"
             onchange="generateStoreReport()"
             multiple
             size="5">
@@ -1508,10 +1541,11 @@
             <table class="w-full text-sm">
                 <thead>
                     <tr class="border-b bg-slate-50 text-left">
-                        <th class="p-3">Date</th>
+                        <th class="p-3">Date / Time</th>
+                        <th class="p-3">Sale ID</th>
                         <th class="p-3">Store</th>
                         <th class="p-3">Area</th>
-                        <th class="p-3">Product Code</th>
+                        <th class="p-3">Product Code(s)</th>
                         <th class="p-3">Sets</th>
                         <th class="p-3">Pieces</th>
                         <th class="p-3">Sales</th>
@@ -1523,32 +1557,12 @@
 
     </div>
 
-    <div class="card">
+</section>
 
-        <div class="table-wrapper">
 
-            <table class="w-full text-sm">
-
-                <thead>
-                    <tr class="border-b bg-slate-50 text-left">
-                        <th class="p-3">Store</th>
-                        <th class="p-3">Area</th>
-                        <th class="p-3">Sold Sets</th>
-                        <th class="p-3">Total Sets</th>
-                        <th class="p-3">Sales</th>
-                        <th class="p-3">Profit</th>
-                    </tr>
-                </thead>
-
-                <tbody id="report-table-body"></tbody>
-
-            </table>
-
-        </div>
 
     </div>
-
-</section>
+</main>
 
 
 <!-- =========================================================
