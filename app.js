@@ -4349,6 +4349,15 @@ document.addEventListener(
             );
         }
 
+        const editHouseForm = $("edit-product-house-form");
+
+if (editHouseForm) {
+    editHouseForm.addEventListener(
+        "submit",
+        saveProductHouseEdit
+    );
+}
+
 
         /* Initial auth */
 
