@@ -2329,7 +2329,7 @@ function renderSaleHistory(rows = saleHistory) {
     body.innerHTML=rows.map(s=>`<tr>
         <td>${s.date||"-"}</td><td>${escapeHtml(getSaleCodes(s))}</td><td>${escapeHtml(s.seller_name||"-")}</td><td>${escapeHtml(getSaleStoreName(s))}</td>
         <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${getSaleDue(s)<=0.009?money(s.seller_profit):"0.00"}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
-        <td><button type="button" class="btn btn-danger sale-return-open" data-sale-id="${escapeHtml(String(s.id))}" ${num(s.total_sets)<=0?'disabled':''}>Return</button></td>
+        <td><button type="button" class="btn btn-danger" ${num(s.total_sets)<=0?'disabled':''} onclick="openSaleReturn(${s.id})">Return</button></td>
     </tr>`).join("");
 }
 
@@ -4269,24 +4269,6 @@ document.addEventListener(
         });
 
 
-        /* Sales return controls: delegated click binding survives history re-renders. */
-        const saleHistoryBody = $("sale-history-body");
-        if (saleHistoryBody && !saleHistoryBody.dataset.returnHandlerBound) {
-            saleHistoryBody.dataset.returnHandlerBound = "true";
-            saleHistoryBody.addEventListener("click", (event) => {
-                const button = event.target.closest(".sale-return-open");
-                if (!button) return;
-                event.preventDefault();
-                event.stopPropagation();
-                openSaleReturn(button.dataset.saleId);
-            });
-        }
-        const saleReturnForm = $("sale-return-form");
-        if (saleReturnForm && !saleReturnForm.dataset.submitHandlerBound) {
-            saleReturnForm.dataset.submitHandlerBound = "true";
-            saleReturnForm.addEventListener("submit", saveSaleReturn);
-        }
-
         /* Forms */
 
         const productForm =
@@ -4317,6 +4299,13 @@ document.addEventListener(
                 "submit",
                 saveSale
             );
+        }
+
+        // Sales History Return modal: prevent default form navigation
+        // and run the async return-save handler instead.
+        const saleReturnForm = $("sale-return-form");
+        if (saleReturnForm) {
+            saleReturnForm.addEventListener("submit", saveSaleReturn);
         }
 
         const ledgerForm =
