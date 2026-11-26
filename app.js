@@ -2329,7 +2329,7 @@ function renderSaleHistory(rows = saleHistory) {
     body.innerHTML=rows.map(s=>`<tr>
         <td>${s.date||"-"}</td><td>${escapeHtml(getSaleCodes(s))}</td><td>${escapeHtml(s.seller_name||"-")}</td><td>${escapeHtml(getSaleStoreName(s))}</td>
         <td>${num(s.total_sets)}</td><td>${getSalePieces(s)}</td><td>${money(s.total_cost)}</td><td>${money(s.total_sale)}</td><td>${getSaleDue(s)<=0.009?money(s.seller_profit):"0.00"}</td><td>${money(s.manager_profit)}</td><td>${money(s.gross_profit)}</td><td>${money(s.investor_profit)}</td><td>${money(s.admin_profit)}</td>
-        <td><button type="button" class="btn btn-danger" ${num(s.total_sets)<=0?'disabled':''} onclick="openSaleReturn(${s.id})">Return</button></td>
+        <td><button type="button" class="btn btn-danger sale-return-open" data-sale-id="${escapeHtml(String(s.id))}" ${num(s.total_sets)<=0?'disabled':''}>Return</button></td>
     </tr>`).join("");
 }
 
@@ -2352,171 +2352,43 @@ function openSaleReturn(id){
     openModal("sale-return-modal");
 }
 
-async function saveSaleReturn(event) {
-    if (event) event.preventDefault();
-
-    const button = $("sale-return-form")?.querySelector('button[type="submit"]');
-    setButtonLoading(button, true, "Save Return");
-
-    try {
-        const saleId = safeValue("return-sale-id");
-        const sale = saleHistory.find(x => String(x.id) === String(saleId));
-        if (!sale) throw new Error("Sale record not found. Refresh Sales History and try again.");
-
-        const items = getSaleItems(sale).map(item => ({ ...item }));
-        const inputs = Array.from(document.querySelectorAll(".return-item-sets"));
-        let returnSets = 0, returnPcs = 0, returnSale = 0, returnCost = 0;
-        let returnSeller = 0, returnManager = 0;
-        const changes = [];
-
-        for (const input of inputs) {
-            const idx = Number(input.dataset.index);
-            const q = num(input.value);
-            if (!Number.isFinite(q) || q < 0) throw new Error("Return quantities must be valid non-negative numbers.");
-            if (q <= 0) continue;
-
-            const item = items[idx];
-            if (!item) throw new Error("Invalid return item. Close the modal and reopen it.");
-
-            const available = num(item.sets);
-            if (q > available) {
-                throw new Error(`Return quantity for ${item.product_code || item.code || "product"} cannot exceed ${available} sets.`);
-            }
-
-            const product = productsList.find(p => String(p.id) === String(item.product_id));
-            const pcsPerSet = num(item.pcs_per_set) || num(product?.pcs_set);
-            const costPerSet = num(item.cost_per_set) || (num(sale.total_sets) ? num(sale.total_cost) / num(sale.total_sets) : 0);
-            const salePrice = num(item.sale_price_per_set);
-            const sellerPerSet = num(item.seller_per_set);
-            const managerPerSet = num(item.manager_per_set);
-
-            if ([pcsPerSet, costPerSet, salePrice, sellerPerSet, managerPerSet].some(v => !Number.isFinite(v) || v < 0)) {
-                throw new Error("Invalid price, cost, or quantity data found in this sale. Please review the sale record.");
-            }
-
-            returnSets += q;
-            returnPcs += q * pcsPerSet;
-            returnSale += q * salePrice;
-            returnCost += q * costPerSet;
-            returnSeller += q * sellerPerSet;
-            returnManager += q * managerPerSet;
-            changes.push({ idx, q, costPerSet, pcsPerSet });
-        }
-
-        if (!returnSets) throw new Error("Select at least one set to return.");
-        if (returnSets > num(sale.total_sets)) throw new Error("Return quantity exceeds the remaining sets in this sale.");
-
-        const returnGross = returnSale - returnCost - returnSeller - returnManager;
-        const returnInvestor = Math.max(0, returnGross * 0.10);
-        const returnAdmin = Math.max(0, returnGross * 0.90);
-
-        // Restore inventory first. Each database error is surfaced with its operation.
-        for (const ch of changes) {
-            const item = items[ch.idx];
-            item.sets = num(item.sets) - ch.q;
-            const productId = item.product_id;
-            let stock = null;
-
-            if (item.stock_id) {
-                stock = productHouseStock.find(s => String(s.id) === String(item.stock_id));
-            }
-            if (!stock) {
-                stock = productHouseStock.find(s =>
-                    String(s.product_id) === String(productId) &&
-                    String(s.print_code || "") === String(item.product_code || "")
-                );
-            }
-
-            if (stock) {
-                const { error } = await supabaseClient.from("stock")
-                    .update({
-                        sets: num(stock.sets) + ch.q,
-                        pcs: num(stock.pcs) + Math.round(ch.q * ch.pcsPerSet)
-                    })
-                    .eq("id", stock.id);
-                if (error) throw new Error("Could not restore returned items to stock: " + error.message);
-            } else {
-                const { error } = await supabaseClient.from("stock").insert({
-                    print_code: item.product_code || "",
-                    product_id: productId,
-                    type: item.type || "",
-                    sets: ch.q,
-                    pcs: Math.round(ch.q * ch.pcsPerSet),
-                    cost_per_set: ch.costPerSet,
-                    production_id: item.production_id || null,
-                    date: sale.date || todayDate()
-                });
-                if (error) throw new Error("Could not create stock record for returned items: " + error.message);
+async function saveSaleReturn(event){
+    if(event)event.preventDefault();
+    const saleId=safeValue("return-sale-id"); const sale=saleHistory.find(x=>String(x.id)===String(saleId)); if(!sale)return;
+    const items=getSaleItems(sale).map(i=>({...i}));
+    const inputs=Array.from(document.querySelectorAll(".return-item-sets"));
+    let returnSets=0, returnPcs=0, returnSale=0, returnCost=0, returnSeller=0, returnManager=0;
+    const changes=[];
+    inputs.forEach(input=>{const idx=num(input.dataset.index); const q=num(input.value); if(q<=0)return; const item=items[idx]; const available=num(item.sets); if(q>available)throw new Error(`Return quantity exceeds sold quantity for ${item.product_code||item.code||"product"}.`); const pcsPerSet=num(item.pcs_per_set) || num(productsList.find(p=>String(p.id)===String(item.product_id))?.pcs_set); const costPerSet=num(item.cost_per_set) || (num(sale.total_sets)?num(sale.total_cost)/num(sale.total_sets):0); const sp=num(item.sale_price_per_set); const seller=num(item.seller_per_set); const manager=num(item.manager_per_set); returnSets+=q; returnPcs+=q*pcsPerSet; returnSale+=q*sp; returnCost+=q*costPerSet; returnSeller+=q*seller; returnManager+=q*manager; changes.push({idx,q,costPerSet,pcsPerSet});});
+    if(!returnSets){alert("Select at least one set to return.");return;}
+    const returnGross=returnSale-returnCost-returnSeller-returnManager;
+    const returnInvestor=Math.max(0,returnGross*0.10); const returnAdmin=Math.max(0,returnGross*0.90);
+    try{
+        for(const ch of changes){
+            const item=items[ch.idx]; item.sets=num(item.sets)-ch.q;
+            const productId=item.product_id; let stock=null;
+            if(item.stock_id) stock=productHouseStock.find(s=>String(s.id)===String(item.stock_id));
+            if(!stock) stock=productHouseStock.find(s=>String(s.product_id)===String(productId)&&String(s.print_code||"")===String(item.product_code||""));
+            if(stock){
+                const newSets=num(stock.sets)+ch.q; const newPcs=num(stock.pcs)+Math.round(ch.q*ch.pcsPerSet);
+                const {error}=await supabaseClient.from("stock").update({sets:newSets,pcs:newPcs}).eq("id",stock.id); if(error)throw error;
+            }else{
+                const {error}=await supabaseClient.from("stock").insert({print_code:item.product_code||"",product_id:productId,type:item.type||"",sets:ch.q,pcs:Math.round(ch.q*ch.pcsPerSet),cost_per_set:ch.costPerSet,production_id:item.production_id||null,date:sale.date||todayDate()}); if(error)throw error;
             }
         }
-
-        const newTotalSets = Math.max(0, num(sale.total_sets) - returnSets);
-        const newTotalPcs = Math.max(0, num(sale.total_pcs) - returnPcs);
-        const newTotalCost = Math.max(0, num(sale.total_cost) - returnCost);
-        const newTotalSale = Math.max(0, num(sale.total_sale) - returnSale);
-        const newSeller = Math.max(0, num(sale.seller_profit) - returnSeller);
-        const newManager = Math.max(0, num(sale.manager_profit) - returnManager);
-        const newGross = newTotalSale - newTotalCost - newSeller - newManager;
-        const newInvestor = Math.max(0, newGross * 0.10);
-        const newAdmin = Math.max(0, newGross * 0.90);
-        const status = newTotalSets <= 0 ? "Returned" : "Partial";
-
-        const { error: updateError } = await supabaseClient.from("sales").update({
-            items: items.filter(i => num(i.sets) > 0),
-            total_sets: newTotalSets,
-            total_pcs: Math.round(newTotalPcs),
-            total_cost: newTotalCost,
-            total_sale: newTotalSale,
-            gross_profit: newGross,
-            seller_profit: newSeller,
-            manager_profit: newManager,
-            investor_profit: newInvestor,
-            admin_profit: newAdmin,
-            return_status: status,
-            returned_sets: num(sale.returned_sets) + returnSets,
-            returned_pcs: num(sale.returned_pcs) + returnPcs,
-            returned_at: new Date().toISOString()
-        }).eq("id", sale.id).eq("user_id", currentUserId());
-
-        if (updateError) {
-            throw new Error("Stock was restored, but the sale record could not be updated. Please contact admin before retrying. Database: " + updateError.message);
-        }
-
-        const reverseRows = [
-            { title: "Sale Return", amount: -returnSale, note: `auto_sale_return:revenue:${sale.id}` },
-            { title: "Seller Return", amount: -returnSeller, note: `auto_sale_return:seller:${sale.id}` },
-            { title: "Manager Return", amount: -returnManager, note: `auto_sale_return:manager:${sale.id}` },
-            { title: "Investor Return", amount: -returnInvestor, note: `auto_sale_return:investor:${sale.id}` },
-            { title: "Admin Return", amount: -returnAdmin, note: `auto_sale_return:admin:${sale.id}` }
-        ].filter(row => num(row.amount) !== 0).map(row => ({
-            user_id: currentUserId(),
-            date: todayDate(),
-            type: "Income",
-            title: row.title,
-            amount: row.amount,
-            note: row.note
-        }));
-
-        if (reverseRows.length) {
-            const { error } = await supabaseClient.from("ledger").insert(reverseRows);
-            if (error) {
-                throw new Error("Sale and stock were updated, but ledger reversal failed. Database: " + error.message);
-            }
-        }
-
-        await Promise.all([fetchSalesFromSupabase(), fetchStockFromSupabase(), fetchLedgerFromSupabase()]);
-        renderSaleHistory();
-        renderSaleSummary();
-        renderProductHouse();
-        updateDashboard();
-        closeModalSafe("sale-return-modal");
-        alert(`${returnSets} set returned successfully.`);
-    } catch (error) {
-        console.error("Return sale error:", error);
-        alert("Return failed:\n" + (error?.message || String(error)));
-    } finally {
-        setButtonLoading(button, false, "Save Return");
-    }
+        const newTotalSets=Math.max(0,num(sale.total_sets)-returnSets); const newTotalPcs=Math.max(0,num(sale.total_pcs)-returnPcs); const newTotalCost=Math.max(0,num(sale.total_cost)-returnCost); const newTotalSale=Math.max(0,num(sale.total_sale)-returnSale); const newSeller=Math.max(0,num(sale.seller_profit)-returnSeller); const newManager=Math.max(0,num(sale.manager_profit)-returnManager); const newGross=newTotalSale-newTotalCost-newSeller-newManager; const newInvestor=Math.max(0,newGross*0.10); const newAdmin=Math.max(0,newGross*0.90);
+        const status=newTotalSets<=0?"Returned":"Partial";
+        const {error:updateError}=await supabaseClient.from("sales").update({items:items.filter(i=>num(i.sets)>0),total_sets:newTotalSets,total_pcs:Math.round(newTotalPcs),total_cost:newTotalCost,total_sale:newTotalSale,gross_profit:newGross,seller_profit:newSeller,manager_profit:newManager,investor_profit:newInvestor,admin_profit:newAdmin,return_status:status,returned_sets:num(sale.returned_sets)+returnSets,returned_pcs:num(sale.returned_pcs)+returnPcs,returned_at:new Date().toISOString()}).eq("id",sale.id); if(updateError)throw updateError;
+        const reverseRows=[
+            {title:"Sale Return",amount:-returnSale,note:`auto_sale_return:revenue:${sale.id}`},
+            {title:"Seller Return",amount:-returnSeller,note:`auto_sale_return:seller:${sale.id}`},
+            {title:"Manager Return",amount:-returnManager,note:`auto_sale_return:manager:${sale.id}`},
+            {title:"Investor Return",amount:-returnInvestor,note:`auto_sale_return:investor:${sale.id}`},
+            {title:"Admin Return",amount:-returnAdmin,note:`auto_sale_return:admin:${sale.id}`}
+        ].filter(x=>num(x.amount)!==0).map(x=>({user_id:currentUserId(),date:todayDate(),type:"Income",title:x.title,amount:x.amount,note:x.note}));
+        if(reverseRows.length){const {error}=await supabaseClient.from("ledger").insert(reverseRows);if(error)throw error;}
+        await Promise.all([fetchSalesFromSupabase(),fetchStockFromSupabase(),fetchLedgerFromSupabase()]); renderSaleHistory();renderSaleSummary();renderProductHouse();updateDashboard();closeModalSafe("sale-return-modal");alert(`${returnSets} set returned successfully.`);
+    }catch(e){console.error("Return sale error:",e);alert("Return failed:\n"+e.message);}
 }
 
 function filterSaleHistory() {
@@ -4396,6 +4268,24 @@ document.addEventListener(
             }
         });
 
+
+        /* Sales return controls: delegated click binding survives history re-renders. */
+        const saleHistoryBody = $("sale-history-body");
+        if (saleHistoryBody && !saleHistoryBody.dataset.returnHandlerBound) {
+            saleHistoryBody.dataset.returnHandlerBound = "true";
+            saleHistoryBody.addEventListener("click", (event) => {
+                const button = event.target.closest(".sale-return-open");
+                if (!button) return;
+                event.preventDefault();
+                event.stopPropagation();
+                openSaleReturn(button.dataset.saleId);
+            });
+        }
+        const saleReturnForm = $("sale-return-form");
+        if (saleReturnForm && !saleReturnForm.dataset.submitHandlerBound) {
+            saleReturnForm.dataset.submitHandlerBound = "true";
+            saleReturnForm.addEventListener("submit", saveSaleReturn);
+        }
 
         /* Forms */
 
